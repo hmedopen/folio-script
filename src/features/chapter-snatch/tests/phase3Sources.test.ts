@@ -27,9 +27,10 @@ test('SourceRegistry recognizes Korean platforms', () => {
   assert.equal(naver.adapter.id, 'naver-webtoon');
   assert.equal(naver.info.sourceChapterId, '183559-600');
 
-  // Kakao (Restricted)
+  // KakaoPage Korea
   const kakao = sourceRegistry.resolve('https://page.kakao.com/content/12345/viewer/67890');
   assert.equal(kakao.adapter.id, 'kakaopage');
+  assert.equal(kakao.info.sourceChapterId, '12345-67890');
 });
 
 test('SourceRegistry recognizes Chinese platforms', () => {
@@ -362,10 +363,6 @@ test('MadaraDriver parses reading-content images and attributes', () => {
 
 test('Restricted platforms cleanly report exact restrictions without bypassing DRM/auth', async () => {
   const restrictedCases = [
-    {
-      url: 'https://page.kakao.com/content/12345/viewer/67890',
-      expectedKeyword: 'Kakao OAuth authorization tokens',
-    },
     {
       url: 'https://ac.qq.com/ComicView/index/id/505430/cid/1',
       expectedKeyword: 'QQ user authentication',

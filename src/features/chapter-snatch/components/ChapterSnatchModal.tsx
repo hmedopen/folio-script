@@ -304,10 +304,10 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
               type="button"
               onClick={() => setShowSupportedSites(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/[0.12] text-xs font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
-              title="View all 24 live supported sources"
+              title="View all 25 live supported sources"
             >
               <Globe className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Supported Sites (24)</span>
+              <span>Supported Sites (25)</span>
             </button>
 
             <button
@@ -620,7 +620,7 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
                   Supported Chapter Sources
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                  24 Live Verified
+                  25 Live Verified
                 </span>
               </div>
               <button
@@ -715,6 +715,7 @@ const SUPPORTED_SOURCES = [
   { id: 'asura', name: 'Asura Scans', domain: 'asurascans.com', engine: 'Astro Island', sampleUrl: 'https://asurascans.com/comics/logging-out-is-too-hard-f212c582/chapter/1' },
   { id: 'webtoons', name: 'LINE Webtoon', domain: 'webtoons.com', engine: 'Reader DOM', sampleUrl: 'https://www.webtoons.com/en/fantasy/tower-of-god/season-3-ep-1/viewer?title_no=95&episode_no=420' },
   { id: 'naverwebtoon', name: 'Naver Webtoon (KR)', domain: 'comic.naver.com', engine: 'Naver DOM', sampleUrl: 'https://comic.naver.com/webtoon/detail?titleId=183559&no=600' },
+  { id: 'kakaopage', name: 'KakaoPage (KR)', domain: 'page.kakao.com', engine: 'Kakao BFF', sampleUrl: 'https://page.kakao.com/content/52044069/viewer/52055165' },
   { id: 'tonarinoyj', name: 'Tonari no Young Jump', domain: 'tonarinoyj.jp', engine: 'GigaViewer', sampleUrl: 'https://tonarinoyj.jp/episode/12207421984093802437' },
   { id: 'kuragebunch', name: 'Kurage Bunch', domain: 'kuragebunch.com', engine: 'GigaViewer', sampleUrl: 'https://kuragebunch.com/episode/12207421984512319617' },
   { id: 'kingofshojo', name: 'King of Shojo', domain: 'kingofshojo.com', engine: 'MangaThemesia', sampleUrl: 'https://kingofshojo.com/logging-out-is-too-hard-chapter-20/' },

@@ -69,13 +69,6 @@ export class RestrictedSourceAdapter implements ChapterSourceAdapter {
   }
 }
 
-export const kakaoPageAdapter = new RestrictedSourceAdapter({
-  id: 'kakaopage',
-  name: 'KakaoPage',
-  domains: ['page.kakao.com'],
-  restrictionReason: 'Single-page app requiring Kakao OAuth authorization tokens and client API encryption',
-});
-
 export const tencentComicAdapter = new RestrictedSourceAdapter({
   id: 'tencent-comic',
   name: 'Tencent Comic (ac.qq.com)',

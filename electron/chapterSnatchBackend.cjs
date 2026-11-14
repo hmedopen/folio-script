@@ -666,6 +666,12 @@ const ALLOWED_IMAGE_DOMAINS = [
   'image-comic.pstatic.net',
   '*.pstatic.net',
 
+  // KakaoPage
+  'page-edge.kakao.com',
+  'dn-img-page.kakao.com',
+  '*.kakao.com',
+  '*.kakaocdn.net',
+
   // 4. Tonari no Young Jump
   'cdn-img.tonarinoyj.jp',
 
@@ -873,9 +879,6 @@ async function fetchMetadata(targetUrl) {
   }
 
   // Restricted platforms check
-  if (host === 'page.kakao.com' || host.endsWith('.kakao.com')) {
-    throw new Error('Access Restricted: KakaoPage is a single-page app requiring Kakao OAuth authorization tokens.');
-  }
   if (host === 'ac.qq.com' || host.endsWith('.qq.com')) {
     throw new Error('Access Restricted: Tencent Comic requires QQ user authentication.');
   }
@@ -1026,6 +1029,111 @@ async function fetchMetadata(targetUrl) {
         seriesTitle,
         chapterTitle,
         chapterNumber: no,
+        sourceUrl: targetUrl,
+        pageCount: pages.length,
+      },
+      pages,
+    };
+  }
+
+  // KakaoPage (page.kakao.com)
+  if (host === 'page.kakao.com' || host.endsWith('.kakao.com')) {
+    const pathParts = parsed.pathname.split('/').filter(Boolean);
+    let seriesId = null;
+    let productId = null;
+
+    const contentIdx = pathParts.indexOf('content');
+    if (contentIdx !== -1 && pathParts[contentIdx + 1]) {
+      seriesId = pathParts[contentIdx + 1];
+      const viewerIdx = pathParts.indexOf('viewer');
+      if (viewerIdx !== -1 && pathParts[viewerIdx + 1]) {
+        productId = pathParts[viewerIdx + 1];
+      }
+    }
+
+    if (!seriesId) {
+      throw new Error('Invalid KakaoPage URL: Missing series ID in path.');
+    }
+
+    // If no productId was given (e.g. user pasted the series overview URL), resolve first readable chapter!
+    if (!productId) {
+      const overviewUrl = `https://bff-page.kakao.com/api/gateway/api/v1/content/overview?series_id=${seriesId}`;
+      const ovRes = await secureFetchWithRedirects(
+        overviewUrl,
+        {
+          'User-Agent': ASURA_USER_AGENT,
+          Accept: 'application/json, text/plain, */*',
+          Referer: 'https://page.kakao.com/',
+          Origin: 'https://page.kakao.com',
+        },
+        ALLOWED_SOURCE_DOMAINS
+      );
+      if (!ovRes.ok) throw new Error(`KakaoPage API responded with HTTP ${ovRes.status}.`);
+      const ovJson = await ovRes.json();
+      productId = ovJson.result?.page_continue?.first_read_product_id;
+      if (!productId) {
+        throw new Error('Could not automatically resolve the first chapter for this KakaoPage series. Please open a chapter and paste its viewer link.');
+      }
+    }
+
+    const viewerApiUrl = `https://bff-page.kakao.com/api/gateway/api/v1/viewer/data?series_id=${seriesId}&product_id=${productId}`;
+    const viewerRes = await secureFetchWithRedirects(
+      viewerApiUrl,
+      {
+        'User-Agent': ASURA_USER_AGENT,
+        Accept: 'application/json, text/plain, */*',
+        Referer: 'https://page.kakao.com/',
+        Origin: 'https://page.kakao.com',
+      },
+      ALLOWED_SOURCE_DOMAINS
+    );
+    if (!viewerRes.ok) throw new Error(`KakaoPage API responded with HTTP ${viewerRes.status}.`);
+    const viewerJson = await viewerRes.json();
+
+    if (viewerJson.result_code === -200 || viewerJson.message_key === 'api_content_not_purchased_item') {
+      throw new Error('KakaoPage Chapter Locked: This chapter requires purchase or account ("구매하지 않은 상품입니다."). Only free chapters can be snatched.');
+    }
+
+    if (!viewerJson.viewer_data && viewerJson.message) {
+      throw new Error(`KakaoPage Error: ${viewerJson.message}`);
+    }
+
+    const imgDownloadData = viewerJson.viewer_data?.imageDownloadData || viewerJson.viewer_data?.image_download_data;
+    const files = imgDownloadData?.files;
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      throw new Error('No images found in KakaoPage viewer response.');
+    }
+
+    const seriesTitle = viewerJson.series_item?.title || 'KakaoPage';
+    const chapterTitle = viewerJson.item?.title || `Episode ${productId}`;
+
+    const pages = files.map((file, idx) => {
+      const originalIndex = file.no || (idx + 1);
+      const imageUrl = file.secureUrl || file.secure_url;
+      let ext = 'jpg';
+      if (file.filename) {
+        ext = file.filename.split('.').pop()?.toLowerCase() || 'jpg';
+        if (ext === 'jpeg') ext = 'jpg';
+      }
+      return {
+        id: `kakao-${seriesId}-${productId}-${originalIndex}`,
+        originalIndex,
+        filename: `${String(originalIndex).padStart(3, '0')}.${ext}`,
+        mimeType: ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg',
+        extension: ext,
+        sizeBytes: file.size || 0,
+        imageUrl,
+        downloadStatus: 'pending',
+      };
+    });
+
+    return {
+      metadata: {
+        source: 'kakaopage',
+        sourceChapterId: `${seriesId}-${productId}`,
+        seriesTitle,
+        chapterTitle,
+        chapterNumber: String(viewerJson.item?.order_value || productId),
         sourceUrl: targetUrl,
         pageCount: pages.length,
       },
@@ -1982,6 +2090,8 @@ async function downloadPageImage(imageUrl, referer, options = {}) {
   if (!effectiveReferer) {
     if (imageUrl.includes('image-comic.pstatic.net') || imageUrl.includes('comic.naver.com')) {
       effectiveReferer = 'https://comic.naver.com/';
+    } else if (imageUrl.includes('kakao.com') || imageUrl.includes('kakaocdn.net')) {
+      effectiveReferer = 'https://page.kakao.com/';
     } else if (imageUrl.includes('pstatic.net') || imageUrl.includes('webtoons.com')) {
       effectiveReferer = 'https://www.webtoons.com/';
     } else if (imageUrl.includes('bzcdn.net')) {
