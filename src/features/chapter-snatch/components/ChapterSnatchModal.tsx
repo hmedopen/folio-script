@@ -18,7 +18,11 @@ import {
   Loader2,
   Globe,
   ArrowRight,
+  Layers,
+  Scissors,
 } from 'lucide-react';
+import { ImageProcessingModal } from '../../image-processing/components/ImageProcessingModal';
+import type { ProcessingSourceImage } from '../../image-processing/core/types';
 
 interface ChapterSnatchModalProps {
   isOpen: boolean;
@@ -53,6 +57,9 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showSupportedSites, setShowSupportedSites] = useState(false);
   const [siteSearch, setSiteSearch] = useState('');
+  const [isProcessingModalOpen, setIsProcessingModalOpen] = useState(false);
+  const [processingOperation, setProcessingOperation] = useState<'merge' | 'cut'>('merge');
+  const [processingSources, setProcessingSources] = useState<ProcessingSourceImage[]>([]);
 
   // Subscribe to acquisition manager updates & auto-select ready pages
   useEffect(() => {
@@ -143,6 +150,62 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
     acquisition.status === 'downloading' ||
     isExportingZip ||
     isImportingWorkspace;
+
+  // Launch Merge Studio with snapshot of currently selected pages
+  const handleLaunchMerge = () => {
+    if (selectedCount === 0 || isBusy) return;
+    const imageMap = chapterAcquisitionManager.getAllImages();
+    const sources: ProcessingSourceImage[] = selectedPagesList.map((p, idx) => {
+      const imgData = imageMap.get(p.id);
+      const blob = imgData
+        ? new Blob([imgData.data as any], { type: imgData.mimeType })
+        : new Blob([], { type: p.mimeType });
+      return {
+        id: p.id,
+        originalIndex: idx + 1,
+        name: p.filename,
+        mimeType: p.mimeType,
+        extension: p.extension,
+        width: 800,
+        height: 1200,
+        sizeBytes: p.sizeBytes,
+        thumbnailUrl: p.thumbnailUrl || '',
+        blob,
+        tempFilePath: p.tempFilePath,
+      };
+    });
+    setProcessingSources(sources);
+    setProcessingOperation('merge');
+    setIsProcessingModalOpen(true);
+  };
+
+  // Launch Cut Studio with snapshot of currently selected pages
+  const handleLaunchCut = () => {
+    if (selectedCount === 0 || isBusy) return;
+    const imageMap = chapterAcquisitionManager.getAllImages();
+    const sources: ProcessingSourceImage[] = selectedPagesList.map((p, idx) => {
+      const imgData = imageMap.get(p.id);
+      const blob = imgData
+        ? new Blob([imgData.data as any], { type: imgData.mimeType })
+        : new Blob([], { type: p.mimeType });
+      return {
+        id: p.id,
+        originalIndex: idx + 1,
+        name: p.filename,
+        mimeType: p.mimeType,
+        extension: p.extension,
+        width: 800,
+        height: 1200,
+        sizeBytes: p.sizeBytes,
+        thumbnailUrl: p.thumbnailUrl || '',
+        blob,
+        tempFilePath: p.tempFilePath,
+      };
+    });
+    setProcessingSources(sources);
+    setProcessingOperation('cut');
+    setIsProcessingModalOpen(true);
+  };
 
   // Destination Action 1: Save as ZIP
   const handleSaveZip = async () => {
