@@ -525,6 +525,40 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Merge Action */}
+            <button
+              type="button"
+              onClick={handleLaunchMerge}
+              disabled={selectedCount === 0 || isBusy}
+              className={`h-9 px-3.5 rounded-xl text-xs font-mono font-medium flex items-center gap-1.5 transition-all ${
+                selectedCount === 0 || isBusy
+                  ? 'bg-zinc-900 text-zinc-600 border border-white/[0.04] cursor-not-allowed'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/[0.12] cursor-pointer'
+              }`}
+              title="Merge selected pages into continuous strips"
+            >
+              <Layers className="w-3.5 h-3.5 text-amber-400" />
+              <span>Merge ({selectedCount})</span>
+            </button>
+
+            {/* Cut Action */}
+            <button
+              type="button"
+              onClick={handleLaunchCut}
+              disabled={selectedCount === 0 || isBusy}
+              className={`h-9 px-3.5 rounded-xl text-xs font-mono font-medium flex items-center gap-1.5 transition-all ${
+                selectedCount === 0 || isBusy
+                  ? 'bg-zinc-900 text-zinc-600 border border-white/[0.04] cursor-not-allowed'
+                  : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/[0.12] cursor-pointer'
+              }`}
+              title="Cut selected pages into smaller segments"
+            >
+              <Scissors className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Cut ({selectedCount})</span>
+            </button>
+
+            <div className="h-5 w-px bg-white/[0.1] mx-1" />
+
             {/* Primary Action 1: Save as ZIP */}
             <button
               type="button"
@@ -652,6 +686,26 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
           </div>
         </div>
       )}
+      {/* Image Processing Modal (Merge / Cut scoped to Fetch Snapshot) */}
+      <ImageProcessingModal
+        isOpen={isProcessingModalOpen}
+        onClose={() => setIsProcessingModalOpen(false)}
+        context="fetch"
+        initialSources={processingSources}
+        initialOperation={processingOperation}
+        title={
+          acquisition.metadata?.seriesTitle
+            ? `${acquisition.metadata.seriesTitle} Ch.${acquisition.metadata.chapterNumber || ''}`
+            : 'Fetched Chapter'
+        }
+        activeFolder={activeFolder}
+        folders={folders}
+        setFolders={setFolders}
+        openChapter={openChapter}
+        showToast={showToast}
+        setActiveFolderId={setActiveFolderId}
+        setSelectedChapterId={setSelectedChapterId}
+      />
     </div>
   );
 };
