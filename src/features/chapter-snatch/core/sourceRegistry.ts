@@ -2,6 +2,7 @@ import type { ChapterSourceAdapter, ResolvedSourceInfo } from './types';
 import { mangaDexAdapter } from '../sources/mangadexAdapter';
 import { asuraAdapter } from '../sources/asuraAdapter';
 import { webtoonsAdapter } from '../sources/webtoonsAdapter';
+import { naverWebtoonAdapter } from '../sources/naverWebtoonAdapter';
 import {
   tonariNoYoungJumpAdapter,
   shonenJumpPlusAdapter,
@@ -30,7 +31,6 @@ import {
   ruManhua2Adapter,
 } from '../sources/madaraAdapters';
 import {
-  naverWebtoonAdapter,
   kakaoPageAdapter,
   tencentComicAdapter,
   kuaikanManhuaAdapter,
@@ -46,8 +46,9 @@ export class SourceRegistry {
     this.register(mangaDexAdapter);
     this.register(asuraAdapter);
 
-    // 2. Dedicated Webtoons adapter
+    // 2. Dedicated Webtoons adapters (LINE & Naver Korea)
     this.register(webtoonsAdapter);
+    this.register(naverWebtoonAdapter);
 
     // 3. GigaViewer family
     this.register(tonariNoYoungJumpAdapter);
@@ -77,7 +78,6 @@ export class SourceRegistry {
     this.register(ruManhua2Adapter);
 
     // 6. Restricted / DRM / Auth gated platforms
-    this.register(naverWebtoonAdapter);
     this.register(kakaoPageAdapter);
     this.register(tencentComicAdapter);
     this.register(kuaikanManhuaAdapter);

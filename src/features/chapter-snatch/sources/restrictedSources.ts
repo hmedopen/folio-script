@@ -69,13 +69,6 @@ export class RestrictedSourceAdapter implements ChapterSourceAdapter {
   }
 }
 
-export const naverWebtoonAdapter = new RestrictedSourceAdapter({
-  id: 'naver-webtoon',
-  name: 'Naver Webtoon (Korea)',
-  domains: ['comic.naver.com'],
-  restrictionReason: 'Requires Naver account session and Korean telecom/carrier identity age verification',
-});
-
 export const kakaoPageAdapter = new RestrictedSourceAdapter({
   id: 'kakaopage',
   name: 'KakaoPage',

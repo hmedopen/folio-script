@@ -22,9 +22,10 @@ test('SourceRegistry recognizes Korean platforms', () => {
   assert.equal(webtoons.adapter.id, 'webtoons');
   assert.equal(webtoons.info.sourceChapterId, '95-1');
 
-  // Naver (Restricted)
-  const naver = sourceRegistry.resolve('https://comic.naver.com/webtoon/detail?titleId=183559&no=1');
+  // Naver Webtoon Korea
+  const naver = sourceRegistry.resolve('https://comic.naver.com/webtoon/detail?titleId=183559&no=600');
   assert.equal(naver.adapter.id, 'naver-webtoon');
+  assert.equal(naver.info.sourceChapterId, '183559-600');
 
   // Kakao (Restricted)
   const kakao = sourceRegistry.resolve('https://page.kakao.com/content/12345/viewer/67890');
@@ -361,10 +362,6 @@ test('MadaraDriver parses reading-content images and attributes', () => {
 
 test('Restricted platforms cleanly report exact restrictions without bypassing DRM/auth', async () => {
   const restrictedCases = [
-    {
-      url: 'https://comic.naver.com/webtoon/detail?titleId=183559&no=1',
-      expectedKeyword: 'Naver account session',
-    },
     {
       url: 'https://page.kakao.com/content/12345/viewer/67890',
       expectedKeyword: 'Kakao OAuth authorization tokens',

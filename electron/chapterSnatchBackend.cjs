@@ -411,8 +411,21 @@ async function createZipFromDisk(param1, param2) {
 // =========================================================================
 
 function validateImageBuffer(buffer) {
-  if (!buffer || buffer.length < 12) {
+  if (!buffer || buffer.length < 4) {
     throw new Error('Image data is too small to be a valid image file.');
+  }
+
+  const headStr = buffer.slice(0, 512).toString('utf8').trim().toLowerCase();
+  if (
+    headStr.startsWith('<!doctype html') ||
+    headStr.startsWith('<html') ||
+    headStr.startsWith('<?xml') ||
+    headStr.startsWith('{') ||
+    headStr.includes('<head>') ||
+    headStr.includes('<body>') ||
+    headStr.includes('access denied')
+  ) {
+    throw new Error('Server returned HTML or text error response instead of image data.');
   }
 
   // JPEG: FF D8 FF
@@ -648,8 +661,10 @@ const ALLOWED_IMAGE_DOMAINS = [
   'gg.asuracomic.net',
   'asuracomic.net',
 
-  // 3. LINE Webtoon
+  // 3. LINE Webtoon & Naver Webtoon
   'webtoon-phinf.pstatic.net',
+  'image-comic.pstatic.net',
+  '*.pstatic.net',
 
   // 4. Tonari no Young Jump
   'cdn-img.tonarinoyj.jp',
@@ -858,9 +873,6 @@ async function fetchMetadata(targetUrl) {
   }
 
   // Restricted platforms check
-  if (host === 'comic.naver.com' || host.endsWith('.naver.com')) {
-    throw new Error('Access Restricted: Naver Webtoon requires Naver account session and Korean telecom/carrier identity age verification.');
-  }
   if (host === 'page.kakao.com' || host.endsWith('.kakao.com')) {
     throw new Error('Access Restricted: KakaoPage is a single-page app requiring Kakao OAuth authorization tokens.');
   }
@@ -935,6 +947,85 @@ async function fetchMetadata(targetUrl) {
         seriesTitle,
         chapterTitle,
         chapterNumber: epNo,
+        sourceUrl: targetUrl,
+        pageCount: pages.length,
+      },
+      pages,
+    };
+  }
+
+  // Naver Webtoon (comic.naver.com)
+  if (host.includes('comic.naver.com') || (host.endsWith('.naver.com') && targetUrl.includes('/webtoon/'))) {
+    const res = await secureFetchWithRedirects(
+      targetUrl,
+      {
+        'User-Agent': ASURA_USER_AGENT,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        Referer: 'https://comic.naver.com/',
+      },
+      ALLOWED_SOURCE_DOMAINS
+    );
+    if (!res.ok) throw new Error(`Naver Webtoon responded with HTTP ${res.status}.`);
+    const html = await res.text();
+
+    if (html.includes('연령 확인') || html.includes('성인 인증') || html.includes('login.naver.com')) {
+      throw new Error('This Naver Webtoon chapter requires Naver 19+ age verification or cookie login.');
+    }
+
+    const listMatch = html.match(/<div[^>]*class=["'][^"']*wt_viewer[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    const container = listMatch ? listMatch[1] : html;
+    const imgMatches = [...container.matchAll(/<img([^>]+)>/gi)];
+    const imageUrls = [];
+    for (const match of imgMatches) {
+      const attrs = match[1];
+      const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
+      const target = srcMatch ? srcMatch[1].trim() : null;
+      if (!target || !target.includes('image-comic.pstatic.net') || target.includes('thumbnail')) continue;
+      imageUrls.push(target);
+    }
+    if (imageUrls.length === 0) {
+      throw new Error('Could not find chapter pages in the Naver Webtoon response.');
+    }
+
+    let seriesTitle = 'Naver Webtoon';
+    let chapterTitle = undefined;
+    const ogTitle = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i);
+    if (ogTitle && ogTitle[1]) {
+      const cleanOg = ogTitle[1].trim();
+      if (cleanOg.includes(' - ')) {
+        const parts = cleanOg.split(' - ');
+        seriesTitle = parts[0].trim();
+        chapterTitle = parts.slice(1).join(' - ').trim();
+      } else {
+        seriesTitle = cleanOg;
+      }
+    }
+
+    const titleId = parsed.searchParams.get('titleId') || 'title';
+    const no = parsed.searchParams.get('no') || 'no';
+    const pages = imageUrls.map((u, idx) => {
+      const originalIndex = idx + 1;
+      const cleanUrl = u.split('?')[0];
+      const ext = cleanUrl.split('.').pop()?.toLowerCase() || 'jpg';
+      return {
+        id: `naver-${titleId}-${no}-${originalIndex}`,
+        originalIndex,
+        filename: `${String(originalIndex).padStart(3, '0')}.${ext}`,
+        mimeType: ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg',
+        extension: ext,
+        sizeBytes: 0,
+        imageUrl: u,
+        downloadStatus: 'pending',
+      };
+    });
+
+    return {
+      metadata: {
+        source: 'naver-webtoon',
+        sourceChapterId: `${titleId}-${no}`,
+        seriesTitle,
+        chapterTitle,
+        chapterNumber: no,
         sourceUrl: targetUrl,
         pageCount: pages.length,
       },
@@ -1889,7 +1980,9 @@ async function downloadPageImage(imageUrl, referer, options = {}) {
   // Referer resolution & fallback
   let effectiveReferer = referer;
   if (!effectiveReferer) {
-    if (imageUrl.includes('pstatic.net') || imageUrl.includes('webtoons.com')) {
+    if (imageUrl.includes('image-comic.pstatic.net') || imageUrl.includes('comic.naver.com')) {
+      effectiveReferer = 'https://comic.naver.com/';
+    } else if (imageUrl.includes('pstatic.net') || imageUrl.includes('webtoons.com')) {
       effectiveReferer = 'https://www.webtoons.com/';
     } else if (imageUrl.includes('bzcdn.net')) {
       effectiveReferer = 'https://www.twbzmg.com/';
