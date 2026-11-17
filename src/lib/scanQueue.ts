@@ -437,6 +437,14 @@ export class ScanQueueManager {
 
       if (this.isCancelled || signal.aborted || this.activeOperationId !== operationId) return;
 
+      if (result.scanResult?.status === 'failed' && (!result.bubbles || result.bubbles.length === 0)) {
+        this.pageStatuses[item.pageId] = 'error';
+        this.detailedPageStatuses[item.pageId] = 'ocr_failed';
+        this.pageErrors[item.pageId] = result.scanResult?.issues?.[0]?.reason || 'Scan failed to extract text.';
+        this.notify(item.pageIndex);
+        return;
+      }
+
       const isPartial =
         result.scanResult?.status === 'partial' || result.translationSuccess === false;
       if (isPartial) {

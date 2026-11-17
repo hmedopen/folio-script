@@ -411,6 +411,7 @@ export class LocalOcrEngineService {
         let settled = false;
         let abortRequested = false;
         let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+        let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
         const clearCancelTimer = () => {
           if (cancelTimer !== null) {
@@ -419,8 +420,16 @@ export class LocalOcrEngineService {
           }
         };
 
+        const clearWatchdogTimer = () => {
+          if (watchdogTimer !== null) {
+            clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
+        };
+
         const cleanup = () => {
           clearCancelTimer();
+          clearWatchdogTimer();
           worker.removeEventListener('message', onMessage);
           worker.removeEventListener('error', onError);
           options.signal?.removeEventListener('abort', onActiveAbort);
@@ -602,6 +611,20 @@ export class LocalOcrEngineService {
         };
 
         try {
+          // Arm 25-second watchdog timer against silent WASM/worker deadlock
+          watchdogTimer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            try {
+              worker.terminate();
+            } catch {
+              // Ignore termination error
+            }
+            this.clearWorkerSessionState(worker);
+            reject(new Error('Local OCR worker timed out (exceeded 25000ms limit).'));
+          }, 25000);
+
           // Transfer only the per-page image ArrayBuffer
           worker.postMessage(request, [imageBytes]);
         } catch (err) {

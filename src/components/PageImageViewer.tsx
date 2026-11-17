@@ -114,8 +114,18 @@ export const PageImageViewer: React.FC<PageImageViewerProps> = ({
   // Wheel zoom
   const handleWheel = (e: React.WheelEvent) => {
     e.preventDefault();
-    const zoomFactor = -e.deltaY * 0.0015;
-    setScale((prev) => Math.min(Math.max(prev + zoomFactor, 0.4), 7));
+    if (e.ctrlKey) {
+      // Dynamic zoom graph when holding Ctrl: scales proportionally to current zoom
+      setScale((prev) => {
+        const factor = Math.max(0.12, Math.min(0.75, prev * 0.12));
+        const delta = -Math.sign(e.deltaY) * factor;
+        return Math.min(Math.max(prev + delta, 0.4), 7);
+      });
+    } else {
+      // Default fixed-value wheel zoom
+      const zoomFactor = -e.deltaY * 0.0015;
+      setScale((prev) => Math.min(Math.max(prev + zoomFactor, 0.4), 7));
+    }
   };
 
   // Pan / Drag to move around

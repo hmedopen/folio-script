@@ -24,9 +24,6 @@ export const SettingsFooter: React.FC<SettingsFooterProps> = ({
       className={`h-12 px-5 border-t border-white/[0.08] bg-[#09090c] flex items-center justify-between shrink-0 select-none ${className}`}
     >
       <div className="flex items-center gap-2.5">
-        <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-          System #6 Active
-        </span>
         {hasUnsavedChanges && (
           <span className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[10px] font-mono font-medium">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />

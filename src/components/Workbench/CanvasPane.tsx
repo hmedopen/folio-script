@@ -506,8 +506,18 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
         }));
       } else {
         // Wheel zoom anchored to cursor
-        const step = e.deltaY < 0 ? 15 : -15;
+        // Regular wheel zoom uses fixed step (15)
+        // Ctrl + wheel zoom accelerates along a smooth curve for fast navigation on large manhwa images
         const current = zoomLevelRef.current;
+        let step = e.deltaY < 0 ? 15 : -15;
+
+        if (e.ctrlKey) {
+          // Continuous scale-proportional curve: ~12% of current zoom level per notch,
+          // clamped to a minimum of 18 at low zoom and capped at 90 for smoothness
+          const dynamicStep = Math.max(18, Math.min(90, Math.round(current * 0.12)));
+          step = e.deltaY < 0 ? dynamicStep : -dynamicStep;
+        }
+
         const nextZoom = Math.max(25, Math.min(1000, current + step));
 
         if (nextZoom !== current) {

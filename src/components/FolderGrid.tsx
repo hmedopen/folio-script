@@ -15,6 +15,7 @@ interface FolderGridProps {
   activeFolderId: string | null;
   hasSelectedChapter: boolean;
   onSelectFolder: (folder: Folder) => void;
+  onDeselectFolder?: () => void;
   onAddFolder: (name: string) => void;
   onRenameFolder: (id: string, newName: string) => void;
   onDeleteFolder: (id: string) => void;
@@ -27,6 +28,7 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
   activeFolderId,
   hasSelectedChapter: _hasSelectedChapter,
   onSelectFolder,
+  onDeselectFolder,
   onAddFolder,
   onRenameFolder,
   onDeleteFolder,
@@ -75,11 +77,17 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0a0a0d] p-6 select-none relative">
+    <div
+      onClick={() => onDeselectFolder?.()}
+      className="flex flex-col h-full bg-[#0a0a0d] p-6 select-none relative"
+    >
       {/* Top Action Bar: start draft full-width */}
       <div className="flex items-center gap-4 mb-8">
         <button
-          onClick={onStartDraft}
+          onClick={(e) => {
+            e.stopPropagation();
+            onStartDraft();
+          }}
           className="w-full py-4 px-6 rounded-2xl bg-white text-zinc-950 font-semibold text-base hover:bg-zinc-100 active:scale-[0.99] transition-all flex items-center justify-center gap-2.5 shadow-lg cursor-pointer"
         >
           <FilePlus className="w-5 h-5 text-zinc-950" />
@@ -92,7 +100,10 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 gap-4 pb-8">
           {/* "+" Add Project Item (Square Proportions) */}
           <div
-            onClick={() => setIsAddOpen(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsAddOpen(true);
+            }}
             className="group flex flex-col items-center justify-center aspect-square p-3.5 rounded-2xl cursor-pointer hover:bg-white/[0.03] transition-colors"
           >
             <div className="w-12 h-12 rounded-2xl border border-dashed border-white/[0.18] bg-zinc-900/60 flex items-center justify-center mb-2 group-hover:border-white/[0.35] group-hover:bg-zinc-900 transition-all">
@@ -117,7 +128,10 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
             return (
               <div
                 key={folder.id}
-                onClick={() => onSelectFolder(folder)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectFolder(folder);
+                }}
                 onContextMenu={(e) => handleContextMenu(folder, e)}
                 className={`group flex flex-col items-center justify-center aspect-square p-3.5 rounded-2xl cursor-pointer transition-all duration-150 ${
                   isActive

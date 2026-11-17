@@ -2,22 +2,21 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { settingsService } from '../../services/settings/settingsService';
 import { useWorkbenchStore } from '../../store/workbenchStore';
-import { ENGINE_PRESETS } from '../../services/settings/presets';
 import { SETTINGS_REGISTRY } from '../../services/settings/settingsRegistry';
 import { loadTyperSettings, saveTyperSettings, DEFAULT_TYPERS, type TyperSettings } from '../../types/typers';
 
-import { SettingsHeader } from './SettingsHeader';
 import { SettingsFooter } from './SettingsFooter';
-import { SettingsNavigation, type SettingsNavCategory, SETTINGS_NAV_ITEMS } from './SettingsNavigation';
+import { SettingsNavigation, type SettingsNavCategory } from './SettingsNavigation';
 
 import { GeneralView } from './views/GeneralView';
-import { TweaksView } from './views/TweaksView';
+import { PromptsView } from './views/PromptsView';
 import { WorkspaceView } from './views/WorkspaceView';
 import { TranslateView } from './views/TranslateView';
 import { ScanningView } from './views/ScanningView';
 import { ReviewView } from './views/ReviewView';
 import { MemoryView } from './views/MemoryView';
 import { QualityView } from './views/QualityView';
+import { TrainingStudioView } from './views/TrainingStudioView';
 
 export interface SettingsModalProps {
   isOpen: boolean;
@@ -37,17 +36,14 @@ const getInitialSettingsValues = (projectId: string | null) => {
 /**
  * SettingsModal — Master Settings Slide-Out Panel.
  *
- * Requirements:
+ * Structure:
  * - Slides in from the RIGHT edge of the screen
- * - Occupies ~50% of the available application width (responsive on smaller windows)
- * - Overlays the existing workspace; the workspace behind remains visible and retains dimensions
- * - Left edge has a subtle controlled shadow for depth separation
- * - Structure:
- *   1. Settings header (stable at top)
- *   2. Content area (scrolls independently, immediately to the left of navigation)
- *   3. Navigation sidebar (fixed to FAR RIGHT edge, stationary during content scroll)
- *   4. Settings footer (stable at bottom, contains Apply & Close)
- * - Preserves all existing setting IDs, scopes, defaults, and persistence semantics
+ * - Occupies ~50-65% width with responsive boundaries
+ * - Overlays the existing workspace cleanly
+ * - 2 parts from top to bottom:
+ *   1. Settings Content Area (Left, scrolls independently)
+ *   2. Categories Navigation Sidebar (Right, pushed to top)
+ * - Settings Footer at bottom with Close & Apply
  */
 export const SettingsModal: React.FC<SettingsModalProps> = ({
   isOpen,
@@ -55,8 +51,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onOpenBenchmark,
   projectId = null,
 }) => {
-  const [activeCategory, setActiveCategory] = useState<SettingsNavCategory>('translate');
-  const [revision, setRevision] = useState(() => settingsService.getRevision());
+  const [activeCategory, setActiveCategory] = useState<SettingsNavCategory>('general');
+  const [, setRevision] = useState(() => settingsService.getRevision());
 
   // Hardware Telemetry state
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'connected' | 'failed'>('idle');
@@ -153,54 +149,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }));
   };
 
-  const handleResetCategory = () => {
-    if (activeCategory === 'workspace') {
-      if (window.confirm('Reset all workspace settings and typers back to defaults?')) {
-        setTyperSettings((prev) => ({ ...prev, typers: DEFAULT_TYPERS }));
-        const resetVals: Record<string, any> = {};
-        for (const [key, def] of Object.entries(SETTINGS_REGISTRY)) {
-          if (def.category === 'workspace') {
-            resetVals[key] = def.default_value;
-          }
-        }
-        setDraftValues((prev) => ({ ...prev, ...resetVals }));
-      }
-      return;
-    }
-
-    const categoryMap: Record<SettingsNavCategory, string> = {
-      general: 'general',
-      tweaks: 'general_tweaks',
-      workspace: 'workspace',
-      translate: 'translation',
-      scanning: 'scanning',
-      review: 'review',
-      memory: 'memory',
-      quality: 'quality',
-    };
-
-    const targetCat = categoryMap[activeCategory];
-    if (window.confirm(`Reset all settings in "${activeCategory}" to default?`)) {
-      const resetVals: Record<string, any> = {};
-      for (const [key, def] of Object.entries(SETTINGS_REGISTRY)) {
-        if (def.category === targetCat) {
-          resetVals[key] = def.default_value;
-        }
-      }
-      setDraftValues((prev) => ({ ...prev, ...resetVals }));
-    }
-  };
-
-  const handleApplyPreset = (presetId: string) => {
-    const preset = ENGINE_PRESETS[presetId];
-    if (preset && preset.values) {
-      setDraftValues((prev) => ({
-        ...prev,
-        ...preset.values,
-      }));
-    }
-  };
-
   const handleApply = () => {
     try {
       const appliedVals = appliedSnapshotRef.current.values;
@@ -278,13 +226,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const currentNavItem = SETTINGS_NAV_ITEMS.find((c) => c.id === activeCategory) || SETTINGS_NAV_ITEMS[0];
-
   return (
     <AnimatePresence>
       {isOpen && (
         <div className="fixed inset-0 z-[55] overflow-hidden flex justify-end">
-          {/* 1. Backdrop Dimming (Subtle, preserves visible underlying workspace) */}
+          {/* 1. Backdrop Dimming (Preserves underlying workspace) */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -303,16 +249,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             transition={{ type: 'spring', damping: 28, stiffness: 280 }}
             className="relative z-10 w-full sm:w-[85vw] md:w-[65vw] lg:w-[50vw] min-w-[480px] max-w-[800px] h-full bg-[#0b0c10] border-l border-white/[0.08] shadow-[-20px_0_40px_rgba(0,0,0,0.7)] flex flex-col overflow-hidden text-zinc-100 font-sans select-none"
           >
-            {/* 2.1 Settings Header (Stable) */}
-            <SettingsHeader
-              revision={revision}
-              onClose={handleRequestClose}
-              onApplyPreset={handleApplyPreset}
-              onResetCategory={handleResetCategory}
-              categoryLabel={currentNavItem.label}
-            />
-
-            {/* 2.2 Content Area (Left) + Navigation Sidebar (Far Right) */}
+            {/* Clean 2-column split from top to bottom */}
             <div className="flex-1 flex min-h-0 overflow-hidden">
               {/* Settings Content Area (Left, Scrolls independently) */}
               <main className="flex-1 overflow-y-auto custom-scrollbar p-6 bg-[#0b0c10]">
@@ -329,8 +266,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   />
                 )}
 
-                {activeCategory === 'tweaks' && (
-                  <TweaksView getVal={getVal} setVal={setVal} />
+                {activeCategory === 'prompts' && (
+                  <PromptsView getVal={getVal} setVal={setVal} />
                 )}
 
                 {activeCategory === 'workspace' && (
@@ -366,16 +303,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     onCloseSettings={onClose}
                   />
                 )}
+
+                {activeCategory === 'training' && (
+                  <TrainingStudioView />
+                )}
               </main>
 
-              {/* Navigation Sidebar (Fixed to Far Right) */}
+              {/* Navigation Sidebar (Fixed to Far Right, Pushed to Top) */}
               <SettingsNavigation
                 activeCategory={activeCategory}
                 onSelectCategory={setActiveCategory}
               />
             </div>
 
-            {/* 2.3 Settings Footer (Stable) */}
+            {/* Settings Footer */}
             <SettingsFooter
               hasUnsavedChanges={hasUnsavedChanges()}
               onClose={handleRequestClose}
@@ -385,24 +326,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
           {/* Unsaved Changes Confirmation Dialog */}
           {showDiscardConfirm && (
-            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-100">
-              <div className="w-full max-w-md bg-[#12131a] border border-white/[0.14] rounded-xl p-5 shadow-2xl space-y-4">
-                <div className="space-y-1.5">
-                  <h3 className="text-sm font-bold text-white font-mono uppercase tracking-wider">
-                    Unsaved Settings Changes
-                  </h3>
-                  <p className="text-xs text-zinc-400 leading-relaxed">
-                    You have modified settings that have not yet been applied. If you close now, these changes will be discarded.
-                  </p>
-                </div>
-                <div className="flex items-center justify-end gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowDiscardConfirm(false)}
-                    className="px-3.5 py-1.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-200 font-mono text-xs font-medium cursor-pointer transition-colors"
-                  >
-                    Keep Editing
-                  </button>
+            <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-100">
+              <div className="w-full max-w-md bg-[#12131a] border border-white/[0.14] rounded-2xl p-6 shadow-2xl space-y-6">
+                <h3 className="text-center text-base font-bold text-white font-mono uppercase tracking-wider">
+                  Unsaved Settings Changes
+                </h3>
+                <div className="flex items-center justify-between px-2 pt-1">
                   <button
                     type="button"
                     onClick={() => {
@@ -411,9 +340,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       setTyperSettings(JSON.parse(JSON.stringify(appliedSnapshotRef.current.typers)));
                       onClose();
                     }}
-                    className="px-3.5 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-semibold cursor-pointer transition-colors shadow-sm"
+                    className="w-[40%] py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-mono text-xs font-semibold cursor-pointer transition-colors text-center"
                   >
                     Discard Changes & Close
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscardConfirm(false)}
+                    className="w-[40%] py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-mono text-xs font-semibold cursor-pointer transition-colors shadow-sm text-center"
+                  >
+                    Keep Editing
                   </button>
                 </div>
               </div>

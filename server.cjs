@@ -5,6 +5,14 @@ const {
   fetchMetadata,
   downloadPageImage,
 } = require('./electron/chapterSnatchBackend.cjs');
+const { googleDriveAuthManager } = require('./electron/googleDriveAuth.cjs');
+const { listExplorerDirectory } = require('./electron/googleDriveClient.cjs');
+const { createModelManager, isValidModelId } = require('./electron/modelManager.cjs');
+
+const userDataDir = process.env.APPDATA
+  ? path.join(process.env.APPDATA, 'Folio Script')
+  : path.join(process.env.HOME || '', '.folio-script');
+const modelManager = createModelManager({ userDataDir, isProduction: false });
 
 const PORT = 5173;
 const DIST_DIR = path.join(__dirname, 'dist');
@@ -61,6 +69,175 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify({ error: err.message || 'Failed to download page image.' }));
     }
+    return;
+  }
+
+  // Handle Google Drive Importer APIs (Zero-Electron in-browser fallback)
+  if (urlObj.pathname === '/api/google-drive/auth-state') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(googleDriveAuthManager.getAuthState()));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/authenticate') {
+    try {
+      const authResult = await googleDriveAuthManager.authenticate();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(authResult));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message || 'Authentication failed' }));
+    }
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/sign-out') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(googleDriveAuthManager.signOut()));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/get-client-id') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ clientId: googleDriveAuthManager.getClientId() }));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/set-client-id') {
+    const clientId = urlObj.searchParams.get('clientId') || '';
+    const result = googleDriveAuthManager.setClientId(clientId);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/get-api-key') {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ apiKey: googleDriveAuthManager.getApiKey() }));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/set-api-key') {
+    const apiKey = urlObj.searchParams.get('apiKey') || '';
+    const result = googleDriveAuthManager.setApiKey(apiKey);
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(result));
+    return;
+  }
+
+  if (urlObj.pathname === '/api/google-drive/list-explorer') {
+    try {
+      const folderId = urlObj.searchParams.get('folderId') || 'root';
+      const items = await listExplorerDirectory(folderId);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(items));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to list directory' }));
+    }
+    return;
+  }
+
+  // Handle Local OCR Model Management APIs (Zero-Electron in-browser fallback)
+  if (urlObj.pathname === '/api/local-models/manifest') {
+    try {
+      const manifest = modelManager.getManifest();
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(manifest));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to get manifest' }));
+    }
+    return;
+  }
+
+  if (urlObj.pathname === '/api/local-models/status') {
+    try {
+      const modelId = urlObj.searchParams.get('modelId') || undefined;
+      if (modelId && !isValidModelId(modelId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Invalid modelId' }));
+        return;
+      }
+      const status = await modelManager.getModelStatus(modelId);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(status));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to get status' }));
+    }
+    return;
+  }
+
+  if (urlObj.pathname === '/api/local-models/assets') {
+    try {
+      const modelId = urlObj.searchParams.get('modelId');
+      if (!modelId || !isValidModelId(modelId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'Missing or invalid modelId parameter' }));
+        return;
+      }
+      const assets = await modelManager.readModelAssets(modelId);
+      const filesBase64 = {};
+      for (const [relPath, uint8] of Object.entries(assets.files)) {
+        filesBase64[relPath] = Buffer.from(uint8).toString('base64');
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({
+        modelId: assets.modelId,
+        revisionLabel: assets.revisionLabel,
+        filesBase64,
+      }));
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ error: err.message || 'Failed to read model assets' }));
+    }
+    return;
+  }
+
+  if (urlObj.pathname === '/api/local-models/download' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const modelId = payload.modelId;
+        if (!modelId || !isValidModelId(modelId)) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Invalid modelId' }));
+          return;
+        }
+        const status = await modelManager.downloadModel(modelId);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(status));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: err.message || 'Download failed' }));
+      }
+    });
+    return;
+  }
+
+  if (urlObj.pathname === '/api/local-models/remove' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const modelId = payload.modelId;
+        if (!modelId || !isValidModelId(modelId)) {
+          res.writeHead(400, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ error: 'Invalid modelId' }));
+          return;
+        }
+        const status = await modelManager.removeModel(modelId);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(status));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: err.message || 'Remove failed' }));
+      }
+    });
     return;
   }
 

@@ -12,6 +12,7 @@ export interface ChapterMetadata {
   chapterNumber?: string;
   sourceUrl: string;
   pageCount: number;
+  acquisitionId?: string;
 }
 
 export type PageDownloadStatus = 'pending' | 'downloading' | 'ready' | 'failed';

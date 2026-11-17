@@ -14,38 +14,48 @@ export const ScanningView: React.FC<ScanningViewProps> = ({ getVal, setVal }) =>
         <h2 className="text-sm font-mono uppercase font-semibold tracking-wider text-zinc-100">
           Scanning & OCR
         </h2>
-        <span className="text-xs text-zinc-500 font-mono">
-          System #3: Detection profiles, reading conventions, SFX filters, and crop retries
-        </span>
       </div>
 
       <div className="space-y-1">
         {/* Speed & Accuracy Profile */}
         <SettingRow
           label="Scanning Speed & Accuracy Profile"
-          description="Balances detection throughput against exhaustive high-resolution verification passes."
+          description="Select between ultra-fast direct cloud scanning or precision hybrid typesetting."
           layout="vertical"
         >
           <div className="grid grid-cols-3 gap-2 mt-1">
             {[
-              { id: 'fast', name: 'Fast (Single Pass)', desc: 'High throughput, skips retries' },
-              { id: 'balanced', name: 'Balanced', desc: 'Standard scan + crop verification' },
-              { id: 'high_accuracy', name: 'High Accuracy', desc: 'Exhaustive verification passes' },
+              { id: 'fast', name: 'Fast Mode', subtitle: 'Direct Cloud' },
+              { id: 'precision', name: 'Precision Mode', subtitle: 'German Hybrid' },
+              { id: 'coming_soon', name: 'Coming Soon...', subtitle: '100% Accuracy Engine', disabled: true },
             ].map((p) => {
-              const active = getVal<string>('scanning.profile') === p.id;
+              const currentVal = getVal<string>('scanning.profile') || 'fast';
+              const active = currentVal === p.id || (p.id === 'precision' && (currentVal === 'balanced' || currentVal === 'high_accuracy'));
               return (
                 <button
                   key={p.id}
                   type="button"
-                  onClick={() => setVal('scanning.profile', p.id)}
-                  className={`p-2.5 rounded-md border text-left transition-colors cursor-pointer ${
-                    active
-                      ? 'bg-white/[0.10] border-white/30 text-white'
-                      : 'bg-[#08080b] border-white/[0.04] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.02]'
+                  disabled={p.disabled}
+                  onClick={() => !p.disabled && setVal('scanning.profile', p.id)}
+                  className={`py-3 px-2 rounded-xl border text-center transition-all ${
+                    p.disabled
+                      ? 'opacity-40 cursor-not-allowed bg-black/40 border-white/[0.04] text-zinc-500'
+                      : active
+                      ? 'bg-white border-white text-zinc-950 font-semibold shadow-sm cursor-pointer'
+                      : 'bg-[#0e0f14] border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.04] cursor-pointer'
                   }`}
                 >
-                  <div className="text-xs font-medium">{p.name}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{p.desc}</div>
+                  <div className="text-xs font-medium tracking-tight flex items-center justify-center gap-1.5">
+                    {p.name}
+                    {p.disabled && (
+                      <span className="text-[9px] px-1 py-0.2 bg-amber-500/20 text-amber-400 rounded font-mono font-normal">
+                        SOON
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-[10px] mt-0.5 ${active ? 'text-zinc-600' : 'text-zinc-500'}`}>
+                    {p.subtitle}
+                  </div>
                 </button>
               );
             })}
@@ -99,6 +109,19 @@ export const ScanningView: React.FC<ScanningViewProps> = ({ getVal, setVal }) =>
             ariaLabel="Extract In-Art Sound Effects (SFX)"
             checked={Boolean(getVal<boolean>('scanning.include_sfx'))}
             onChange={(checked) => setVal('scanning.include_sfx', checked)}
+          />
+        </SettingRow>
+
+        {/* Gemini Multimodal Fallback */}
+        <SettingRow
+          label="Gemini Multimodal Fallback"
+          description="Automatically fall back to Gemini Multimodal OCR if local OCR models are missing, ineligible, or encounter an error."
+        >
+          <SettingsSwitch
+            id="scanning.allow_gemini_fallback"
+            ariaLabel="Gemini Multimodal Fallback"
+            checked={getVal<boolean>('scanning.allow_gemini_fallback') ?? true}
+            onChange={(checked) => setVal('scanning.allow_gemini_fallback', checked)}
           />
         </SettingRow>
 

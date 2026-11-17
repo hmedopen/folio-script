@@ -23,6 +23,7 @@ import { validateSystem3ScanOutput } from './translationValidator';
 import { performTargetedCropRetries } from './cropRetry';
 import { detectScriptSignal } from './localOcr/languageRouter';
 import { createDiagnosticCorrelationId, emitDiagnosticBoundary } from './diagnosticTap';
+import { snapBoxToBubbleContour } from './contourSnapping';
 import type {
   PageScanResult,
   PanelRegion,

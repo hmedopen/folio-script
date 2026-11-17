@@ -18,6 +18,8 @@ const {
   validateImageBuffer,
   isSsrfSafeUrl,
 } = require('./chapterSnatchBackend.cjs');
+const { googleDriveAuthManager } = require('./googleDriveAuth.cjs');
+const { listExplorerDirectory } = require('./googleDriveClient.cjs');
 
 function registerChapterSnatchIpc(ipcMain, getMainWindow) {
   // 1. Fetch Metadata IPC handler
@@ -97,6 +99,43 @@ function registerChapterSnatchIpc(ipcMain, getMainWindow) {
   ipcMain.handle('chapterSnatch:cleanupAcquisition', async (_event, acquisitionId) => {
     await cleanupAcquisition(acquisitionId);
     return { success: true };
+  });
+
+  // 6. Google Drive Authentication Status
+  ipcMain.handle('googleDrive:getAuthState', async () => {
+    return googleDriveAuthManager.getAuthState();
+  });
+
+  // 7. Google Drive Authenticate (Loopback RFC 8252 with PKCE)
+  ipcMain.handle('googleDrive:authenticate', async () => {
+    return await googleDriveAuthManager.authenticate();
+  });
+
+  // 8. Google Drive Sign Out
+  ipcMain.handle('googleDrive:signOut', async () => {
+    return googleDriveAuthManager.signOut();
+  });
+
+  // 9. Google Drive Native Explorer Directory Listing
+  ipcMain.handle('googleDrive:listExplorerDirectory', async (_event, folderId) => {
+    return await listExplorerDirectory(folderId);
+  });
+
+  // 10. Google Drive Client ID & API Key Configuration
+  ipcMain.handle('googleDrive:getClientId', async () => {
+    return googleDriveAuthManager.getClientId();
+  });
+
+  ipcMain.handle('googleDrive:setClientId', async (_event, clientId) => {
+    return googleDriveAuthManager.setClientId(clientId);
+  });
+
+  ipcMain.handle('googleDrive:getApiKey', async () => {
+    return googleDriveAuthManager.getApiKey();
+  });
+
+  ipcMain.handle('googleDrive:setApiKey', async (_event, apiKey) => {
+    return googleDriveAuthManager.setApiKey(apiKey);
   });
 }
 

@@ -32,6 +32,44 @@ export const SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
       return { valid: true, sanitizedValue: sanitized };
     },
   },
+  'general.google_drive_client_id': {
+    setting_id: 'general.google_drive_client_id',
+    owner_system: 'general',
+    type: 'string',
+    default_value: '',
+    apply_mode: 'immediate',
+    scope: ['global'],
+    visibility: 'basic',
+    runtime_binding: 'GoogleDrive.ClientId',
+    schema_version: '1.0',
+    reset_behavior: 'default',
+    label: 'Google Drive Client ID',
+    description: 'OAuth 2.0 Desktop Client ID for Google Drive chapter acquisition and folder browsing.',
+    category: 'general',
+    validation: (val: string) => {
+      const sanitized = typeof val === 'string' ? val.trim() : '';
+      return { valid: true, sanitizedValue: sanitized };
+    },
+  },
+  'general.google_drive_api_key': {
+    setting_id: 'general.google_drive_api_key',
+    owner_system: 'general',
+    type: 'string',
+    default_value: '',
+    apply_mode: 'immediate',
+    scope: ['global'],
+    visibility: 'basic',
+    runtime_binding: 'GoogleDrive.ApiKey',
+    schema_version: '1.0',
+    reset_behavior: 'default',
+    label: 'Google Drive API Key (Optional)',
+    description: 'Google Cloud API Key for public Google Drive links.',
+    category: 'general',
+    validation: (val: string) => {
+      const sanitized = typeof val === 'string' ? val.trim() : '';
+      return { valid: true, sanitizedValue: sanitized };
+    },
+  },
 
   // ==========================================
   // SYSTEM #2: TRANSLATION & HUMANIZER
@@ -227,8 +265,8 @@ export const SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
     setting_id: 'scanning.profile',
     owner_system: 'system_3',
     type: 'enum',
-    default_value: 'balanced',
-    allowed_values: ['fast', 'balanced', 'high_accuracy'],
+    default_value: 'fast',
+    allowed_values: ['fast', 'precision', 'coming_soon', 'balanced', 'high_accuracy'],
     apply_mode: 'next_operation',
     scope: ['global', 'project'],
     visibility: 'basic',
@@ -236,13 +274,13 @@ export const SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
     schema_version: '1.0',
     reset_behavior: 'default',
     label: 'Scanning Profile',
-    description: 'Fast (single-pass), Balanced (standard + targeted retries), High Accuracy (exhaustive verification).',
+    description: 'Fast (Direct Gemini Cloud), Precision (German Hybrid Architecture), Coming Soon... (Next-Gen Ground Truth Engine).',
     category: 'scanning',
     validation: (val: string) => {
-      if (['fast', 'balanced', 'high_accuracy'].includes(val)) {
-        return { valid: true, sanitizedValue: val };
+      if (['fast', 'precision', 'coming_soon', 'balanced', 'high_accuracy'].includes(val)) {
+        return { valid: true, sanitizedValue: val === 'balanced' || val === 'high_accuracy' ? 'precision' : val };
       }
-      return { valid: false, error: 'Invalid scan profile', sanitizedValue: 'balanced' };
+      return { valid: false, error: 'Invalid scan profile', sanitizedValue: 'fast' };
     },
   },
   'scanning.reading_convention': {
@@ -280,6 +318,22 @@ export const SETTINGS_REGISTRY: Record<string, SettingDefinition> = {
     reset_behavior: 'default',
     label: 'Extract SFX and Sound Elements',
     description: 'Include sound effects and in-art vocalizations in scanning and dialogue list.',
+    category: 'scanning',
+    validation: (val: boolean) => ({ valid: true, sanitizedValue: Boolean(val) }),
+  },
+  'scanning.allow_gemini_fallback': {
+    setting_id: 'scanning.allow_gemini_fallback',
+    owner_system: 'system_3',
+    type: 'boolean',
+    default_value: true,
+    apply_mode: 'next_operation',
+    scope: ['global', 'project'],
+    visibility: 'basic',
+    runtime_binding: 'System3.AllowGeminiFallback',
+    schema_version: '1.0',
+    reset_behavior: 'default',
+    label: 'Gemini Multimodal Fallback',
+    description: 'Automatically fall back to Gemini Multimodal OCR if local models are missing, ineligible, or encounter an error.',
     category: 'scanning',
     validation: (val: boolean) => ({ valid: true, sanitizedValue: Boolean(val) }),
   },

@@ -39,7 +39,11 @@ RESPONSIBILITIES:
 2. TEXT-BEARING REGION DETECTION:
    - Detect all dialogue balloons, thought bubbles, narration boxes, captions, signs, vocalizations, and in-art text.
    - Bounding boxes [ymin, xmin, ymax, xmax] must tightly enclose the text-bearing boundary (0-1000 integer scale).
-   ${includeSFX ? '- Detect environmental and combat sound effects (SFX) rendered in the artwork.' : '- Focus on dialogue, narration, thoughts, and vocalizations.'}
+   ${
+     includeSFX
+       ? '- Detect environmental and combat sound effects (SFX) rendered in the artwork.'
+       : '- SOUND EFFECTS ARE STRICTLY DISABLED: Completely ignore and discard all combat sound effects, stylized onomatopoeia, impact marks, action lettering, and background sound words (e.g. "쾅", "팟", "SLASH", "BOOM", "SWOOSH", "CRASH"). NEVER extract or classify background action sound lettering as dialogue or vocalization. Only detect text that is spoken by a character inside a closed speech balloon or narration box.'
+   }
    - EMPTY & SYMBOL-ONLY BUBBLES: Do NOT create text regions for empty bubbles, punctuation-only content (such as "...", "…", "?", "!", "?!"), or isolated non-linguistic decorative marks.
    - SHORT MEANINGFUL DIALOGUE: PRESERVE short meaningful expressions and conversational reactions (e.g. "Oh", "Ah", "Ha?", "Huh?", "Eh?", "Hm", "...ha?", "...Oh", "?! What?"). Never discard short meaningful fragments.
 
@@ -155,7 +159,7 @@ RESPONSIBILITIES:
    - Every input candidate regionId MUST appear in "readingOrder" exactly once. Never omit an ID or invent new IDs.
    - If visual flow between bubbles is ambiguous, record them in "orderingAmbiguities": [{"regionA": "id1", "regionB": "id2", "reason": "why visual flow is ambiguous"}].
 
-3. TYPER SYMBOL ASSIGNMENT & CLASSIFICATION:
+3. TYPER SYMBOL ASSIGNMENT & VISUAL SHAPE CLASSIFICATION:
    - For EVERY candidate in the input list, return a decision in 'regionDecisions':
      * "assignedTyperId": Select strictly from the CONFIGURED TYPERS below. Do NOT invent custom typer IDs.
      * "typerConfidence": Numeric confidence (0.0 to 1.0) in this typer assignment.
@@ -168,6 +172,18 @@ RESPONSIBILITIES:
        - Use "drop" ONLY when the candidate box is an empty speech bubble, pure punctuation/decorative art ("...", "?!"), or a strict duplicate fragment covered by another kept candidate.
      * "uncertaintyReasons": Array of strings explaining any ambiguity in typer assignment, classification, or reading order.
      * ${languageNote}
+
+   VISUAL SHAPE & CONTOUR DISCRIMINATOR RULES:
+   - DIALOGUE (): Smooth, regular convex oval, rounded rectangle, or egg shape with a distinct pointer/tail aimed at a speaker. Dark solid borders or black speech bubbles with speech pointers are DIALOGUE, NOT thoughts.
+   - THOUGHT <>: STRICTLY cloud-like undulating, scalloped, or bubbly borders, or trailing small circular bubbles leading to a character's head. NEVER classify solid oval bubbles as thought.
+   - SCREAM / VOCALIZATION {}: Jagged, spiky, starburst, electric, or explosive border lines, usually paired with heavy or dynamic lettering.
+   - NARRATION / BOX []: Sharp right-angled rectangular box, borderless square parchment, or floating header/footer caption band.
+   - SFX #: Stylized, non-standard expressive letterforms painted directly into artwork, background, or action scenes without a closed bubble container.
+   ${
+     includeSFX
+       ? ''
+       : '- STRICT SFX ISOLATION: When SFX is disabled, completely ignore and reject sound words ("쾅", "팟", "SLASH", "BOOM"). Do NOT re-classify action sound words into dialogue or shouts.'
+   }
 
 CONFIGURED TYPERS (select assignedTyperId strictly from this list):
 ${typersList}

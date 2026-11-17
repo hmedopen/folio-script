@@ -37,11 +37,15 @@ import {
   tappytoonAdapter,
   comicWalkerAdapter,
 } from '../sources/restrictedSources';
+import { googleDriveAdapter } from '../sources/googleDriveAdapter';
 
 export class SourceRegistry {
   private adapters = new Map<string, ChapterSourceAdapter>();
 
   constructor() {
+    // 0. Cloud Storage Sources
+    this.register(googleDriveAdapter);
+
     // 1. Existing working sources
     this.register(mangaDexAdapter);
     this.register(asuraAdapter);

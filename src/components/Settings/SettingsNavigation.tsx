@@ -1,24 +1,26 @@
 import React from 'react';
 import {
   Sliders,
-  SlidersHorizontal,
+  FileText,
   Layers,
   BookOpen,
   Scan,
   ShieldCheck,
   Database,
   Activity,
+  Sparkles,
 } from 'lucide-react';
 
 export type SettingsNavCategory =
   | 'general'
-  | 'tweaks'
+  | 'prompts'
   | 'workspace'
   | 'translate'
   | 'scanning'
   | 'review'
   | 'memory'
-  | 'quality';
+  | 'quality'
+  | 'training';
 
 export interface NavItemConfig {
   id: SettingsNavCategory;
@@ -32,13 +34,13 @@ export const SETTINGS_NAV_ITEMS: NavItemConfig[] = [
     id: 'general',
     label: 'General',
     icon: <Sliders className="w-4 h-4 shrink-0" />,
-    tagline: 'General preferences, API vault, telemetry',
+    tagline: 'General preferences, API vault, model, telemetry',
   },
   {
-    id: 'tweaks',
-    label: 'Tweaks',
-    icon: <SlidersHorizontal className="w-4 h-4 shrink-0" />,
-    tagline: 'Workflow tweaks and interaction defaults',
+    id: 'prompts',
+    label: 'Prompts',
+    icon: <FileText className="w-4 h-4 shrink-0" />,
+    tagline: 'Custom translation directives and prompt presets',
   },
   {
     id: 'workspace',
@@ -50,7 +52,7 @@ export const SETTINGS_NAV_ITEMS: NavItemConfig[] = [
     id: 'translate',
     label: 'Translate',
     icon: <BookOpen className="w-4 h-4 shrink-0" />,
-    tagline: 'Models, eloquence, fidelity, humanizer',
+    tagline: 'Eloquence, fidelity, humanizer engine',
   },
   {
     id: 'scanning',
@@ -75,6 +77,12 @@ export const SETTINGS_NAV_ITEMS: NavItemConfig[] = [
     label: 'Quality',
     icon: <Activity className="w-4 h-4 shrink-0" />,
     tagline: 'Diagnostics, benchmark runs, release gates',
+  },
+  {
+    id: 'training',
+    label: 'Training Studio',
+    icon: <Sparkles className="w-4 h-4 shrink-0" />,
+    tagline: 'Multimodal reference sets, ground-truth visual teaching',
   },
 ];
 

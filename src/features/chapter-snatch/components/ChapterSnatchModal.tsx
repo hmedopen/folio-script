@@ -20,9 +20,12 @@ import {
   ArrowRight,
   Layers,
   Scissors,
+  HardDrive,
+  LogIn,
 } from 'lucide-react';
 import { ImageProcessingModal } from '../../image-processing/components/ImageProcessingModal';
 import type { ProcessingSourceImage } from '../../image-processing/core/types';
+import { GoogleDrivePopup } from './GoogleDrivePopup';
 
 interface ChapterSnatchModalProps {
   isOpen: boolean;
@@ -60,6 +63,16 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
   const [isProcessingModalOpen, setIsProcessingModalOpen] = useState(false);
   const [processingOperation, setProcessingOperation] = useState<'merge' | 'cut'>('merge');
   const [processingSources, setProcessingSources] = useState<ProcessingSourceImage[]>([]);
+  const [isDrivePopupOpen, setIsDrivePopupOpen] = useState(false);
+
+  const handleDriveSubmitUrl = (url: string) => {
+    setUrlInput(url);
+    setErrorMessage(null);
+    setSelectedPageIds(new Set());
+    void chapterAcquisitionManager.fetchAndAcquire(url).catch((err: any) => {
+      setErrorMessage(err?.message || 'Failed to fetch chapter from Google Drive.');
+    });
+  };
 
   // Subscribe to acquisition manager updates & auto-select ready pages
   useEffect(() => {
@@ -302,6 +315,17 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
+              onClick={() => setIsDrivePopupOpen(true)}
+              disabled={isBusy}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/[0.12] text-xs font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+              title="Import from Google Drive folder or archive"
+            >
+              <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+              <span>Google Drive</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowSupportedSites(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 border border-white/[0.12] text-xs font-mono text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
               title="View all 25 live supported sources"
@@ -396,16 +420,28 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
               <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
               <span>{errorMessage}</span>
             </div>
-            {acquisition.failedCount > 0 && (
-              <button
-                type="button"
-                onClick={handleRetryFailed}
-                className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
-              >
-                <RotateCcw className="w-3 h-3" />
-                <span>Retry Failed ({acquisition.failedCount})</span>
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {errorMessage.toLowerCase().includes('authentication required') && (
+                <button
+                  type="button"
+                  onClick={() => setIsDrivePopupOpen(true)}
+                  className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <LogIn className="w-3 h-3" />
+                  <span>Sign In with Google</span>
+                </button>
+              )}
+              {acquisition.failedCount > 0 && (
+                <button
+                  type="button"
+                  onClick={handleRetryFailed}
+                  className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-200 text-xs font-semibold flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  <span>Retry Failed ({acquisition.failedCount})</span>
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -705,6 +741,14 @@ export const ChapterSnatchModal: React.FC<ChapterSnatchModalProps> = ({
         showToast={showToast}
         setActiveFolderId={setActiveFolderId}
         setSelectedChapterId={setSelectedChapterId}
+      />
+
+      {/* Google Drive Popup (Browse Drive or Paste Link) */}
+      <GoogleDrivePopup
+        isOpen={isDrivePopupOpen}
+        onClose={() => setIsDrivePopupOpen(false)}
+        onSubmitUrl={handleDriveSubmitUrl}
+        isBusy={isBusy}
       />
     </div>
   );

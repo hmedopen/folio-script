@@ -8,7 +8,6 @@ import {
   deriveFallbackTyperColor,
   formatTyperSymbol,
   normalizeHexColor,
-  TYPER_COLOR_SWATCHES,
   type CustomTyperConfig,
   type ExtractedTextDirection,
   type TyperSettings,
@@ -99,9 +98,6 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
         <h2 className="text-sm font-mono uppercase font-semibold tracking-wider text-zinc-100">
           Workspace & Presentation
         </h2>
-        <span className="text-xs text-zinc-500 font-mono">
-          Canvas overlays, diagnostic HUDs, and export tag conventions
-        </span>
       </div>
 
       <div className="space-y-1">
@@ -228,9 +224,6 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
           <h3 className="text-xs font-mono uppercase font-semibold text-zinc-300">
             Typers & Export Tags
           </h3>
-          <span className="text-[11px] text-zinc-500 font-mono">
-            Tag prefixes, Arabic RTL positioning, and AI functional classification rules
-          </span>
         </div>
 
         <div className="space-y-1">
@@ -412,33 +405,6 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-
-                  {/* Quick Solid Swatch Row + AI Instructions */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {TYPER_COLOR_SWATCHES.slice(0, 12).map((swatch) => {
-                      const isChosen = activeColor === swatch;
-                      return (
-                        <button
-                          key={swatch}
-                          type="button"
-                          aria-label={`Set ${t.name} color ${swatch}`}
-                          onClick={() => handleUpdateTyper(t.id, { color: swatch })}
-                          style={{ backgroundColor: swatch }}
-                          className={`w-4 h-4 rounded-[3px] cursor-pointer transition-transform ${
-                            isChosen ? 'ring-2 ring-white scale-110' : 'opacity-80 hover:opacity-100'
-                          }`}
-                        />
-                      );
-                    })}
-                  </div>
-
-                  <input
-                    type="text"
-                    value={t.instructions}
-                    placeholder="AI classification instructions..."
-                    onChange={(e) => handleUpdateTyper(t.id, { instructions: e.target.value })}
-                    className="w-full px-2 py-1 rounded bg-[#030305] border border-white/[0.06] text-zinc-300 text-xs font-mono focus:outline-none focus:border-white/20 select-text"
-                  />
                 </div>
               );
             })}

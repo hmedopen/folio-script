@@ -14,9 +14,6 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ getVal, setVal }) => {
         <h2 className="text-sm font-mono uppercase font-semibold tracking-wider text-zinc-100">
           Project Memory
         </h2>
-        <span className="text-xs text-zinc-500 font-mono">
-          System #5: Knowledge learning modes, lore approval gates, and context token budgets
-        </span>
       </div>
 
       <div className="space-y-1">
@@ -28,9 +25,9 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ getVal, setVal }) => {
         >
           <div className="grid grid-cols-3 gap-2 mt-1">
             {[
-              { id: 'candidate_only', name: 'Candidate Only', desc: 'Explicit operator approval' },
-              { id: 'autonomous_observed', name: 'Autonomous', desc: 'Auto-learns high-confidence lore' },
-              { id: 'disabled', name: 'Disabled', desc: 'No lore memory ingestion' },
+              { id: 'candidate_only', name: 'Candidate Only' },
+              { id: 'autonomous_observed', name: 'Autonomous' },
+              { id: 'disabled', name: 'Disabled' },
             ].map((m) => {
               const active = getVal<string>('memory.learning_mode') === m.id;
               return (
@@ -38,14 +35,13 @@ export const MemoryView: React.FC<MemoryViewProps> = ({ getVal, setVal }) => {
                   key={m.id}
                   type="button"
                   onClick={() => setVal('memory.learning_mode', m.id)}
-                  className={`p-2.5 rounded-md border text-left transition-colors cursor-pointer ${
+                  className={`py-3 px-2 rounded-xl border text-center transition-all cursor-pointer ${
                     active
-                      ? 'bg-white/[0.10] border-white/30 text-white'
-                      : 'bg-[#08080b] border-white/[0.04] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.02]'
+                      ? 'bg-white border-white text-zinc-950 font-semibold shadow-sm'
+                      : 'bg-[#0e0f14] border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.04]'
                   }`}
                 >
-                  <div className="text-xs font-medium">{m.name}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{m.desc}</div>
+                  <div className="text-xs font-medium tracking-tight">{m.name}</div>
                 </button>
               );
             })}

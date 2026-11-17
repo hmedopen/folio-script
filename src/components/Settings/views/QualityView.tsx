@@ -1,9 +1,7 @@
 import React from 'react';
 import { SettingRow } from '../SettingRow';
 import { SettingsSwitch } from '../SettingsSwitch';
-import { Activity, Sparkles } from 'lucide-react';
-import { isTrainingStudioEnabled } from '../../../lib/training/env';
-import { TrainingStudioScreen } from '../../Training/TrainingStudioScreen';
+import { Activity } from 'lucide-react';
 
 export interface QualityViewProps {
   getVal: <T>(key: string) => T;
@@ -18,17 +16,12 @@ export const QualityView: React.FC<QualityViewProps> = ({
   onOpenBenchmark,
   onCloseSettings,
 }) => {
-  const showTraining = isTrainingStudioEnabled();
-
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-sm font-mono uppercase font-semibold tracking-wider text-zinc-100">
           Quality & Benchmark Gates
         </h2>
-        <span className="text-xs text-zinc-500 font-mono">
-          System #6: Benchmark regression gates, CER ceilings, and release qualifications
-        </span>
       </div>
 
       <div className="space-y-1">
@@ -96,21 +89,6 @@ export const QualityView: React.FC<QualityViewProps> = ({
           </div>
         </SettingRow>
       </div>
-
-      {/* Dev-Only Training Studio */}
-      {showTraining && (
-        <div className="pt-6 border-t border-white/[0.08] space-y-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-zinc-400" />
-            <h3 className="text-xs font-mono uppercase font-semibold text-zinc-300">
-              Training Studio (Development Mode)
-            </h3>
-          </div>
-          <div className="rounded-md border border-white/[0.06] overflow-hidden bg-[#050508] p-3 max-h-[400px] overflow-y-auto custom-scrollbar">
-            <TrainingStudioScreen />
-          </div>
-        </div>
-      )}
     </div>
   );
 };

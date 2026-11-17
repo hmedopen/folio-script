@@ -3,6 +3,14 @@ const path = require('path');
 const os = require('os');
 const dns = require('dns');
 const vm = require('vm');
+const {
+  parseDriveUrl,
+  getFileMetadata,
+  listFolderFiles,
+  downloadDriveFileToDisk,
+} = require('./googleDriveClient.cjs');
+const { extractArchive } = require('./archiveExtractor.cjs');
+const { googleDriveAuthManager } = require('./googleDriveAuth.cjs');
 
 // =========================================================================
 // SECTION 1: SSRF GUARD & SECURE NETWORKING
@@ -492,6 +500,12 @@ function validateImageBuffer(buffer) {
 // =========================================================================
 
 const ALLOWED_SOURCE_DOMAINS = [
+  // Google Drive
+  'drive.google.com',
+  'docs.google.com',
+  'googleapis.com',
+  '*.googleapis.com',
+
   // 1. MangaDex
   'mangadex.org',
   '*.mangadex.org',
@@ -651,6 +665,14 @@ const ALLOWED_SOURCE_DOMAINS = [
 ];
 
 const ALLOWED_IMAGE_DOMAINS = [
+  // Google Drive & CDN
+  'drive.google.com',
+  'docs.google.com',
+  'googleapis.com',
+  '*.googleapis.com',
+  'googleusercontent.com',
+  '*.googleusercontent.com',
+
   // 1. MangaDex
   '*.mangadex.network',
   '*.mangadex.org',
@@ -2063,6 +2085,133 @@ async function fetchMetadata(targetUrl) {
     };
   }
 
+  // Google Drive (Folders and ZIP/CBZ Archives)
+  if (host.includes('drive.google.com') || host.includes('docs.google.com')) {
+    const driveInfo = parseDriveUrl(targetUrl);
+    if (!driveInfo) {
+      throw new Error(`Invalid Google Drive link format: "${targetUrl}"`);
+    }
+
+    const { resourceId, resourceKey } = driveInfo;
+    const meta = await getFileMetadata(resourceId, resourceKey);
+
+    const isFolder = meta.mimeType === 'application/vnd.google-apps.folder';
+    const lowerName = (meta.name || '').toLowerCase();
+    const isArchive =
+      lowerName.endsWith('.zip') ||
+      lowerName.endsWith('.cbz') ||
+      meta.mimeType === 'application/zip' ||
+      meta.mimeType === 'application/x-zip-compressed' ||
+      meta.mimeType === 'application/vnd.comicbook+zip';
+
+    if (isFolder) {
+      const files = await listFolderFiles(resourceId, resourceKey);
+      const imageFiles = files.filter((f) => {
+        const isImgMime = f.mimeType && f.mimeType.startsWith('image/');
+        const ext = (f.name.match(/\.([a-zA-Z0-9]+)$/) || [])[1]?.toLowerCase();
+        return isImgMime || (ext && ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'avif'].includes(ext));
+      });
+
+      if (imageFiles.length === 0) {
+        throw new Error(`No supported image files found in folder "${meta.name}".`);
+      }
+
+      // Natural alphanumeric collation
+      const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+      imageFiles.sort((a, b) => collator.compare(a.name, b.name));
+
+      const pages = imageFiles.map((f, idx) => {
+        const originalIndex = idx + 1;
+        const extMatch = f.name.match(/\.([a-zA-Z0-9]+)$/);
+        const ext = extMatch ? extMatch[1].toLowerCase() : 'jpg';
+        const mimeType = f.mimeType?.startsWith('image/') ? f.mimeType : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+        const downloadUrl = `https://www.googleapis.com/drive/v3/files/${f.id}?alt=media${resourceKey ? `&resourcekey=${resourceKey}` : ''}`;
+
+        return {
+          id: `drive-page-${Date.now()}-${originalIndex}-${Math.random().toString(36).substring(2, 6)}`,
+          originalIndex,
+          filename: `${String(originalIndex).padStart(3, '0')}.${ext}`,
+          mimeType,
+          extension: ext,
+          sizeBytes: Number(f.size || 0),
+          imageUrl: downloadUrl,
+          downloadStatus: 'pending',
+        };
+      });
+
+      let seriesTitle = meta.name || 'Google Drive Folder';
+      let chapterNumber = '';
+      const chMatch = meta.name.match(/ch(?:apter)?\.?\s*([0-9]+(?:\.[0-9]+)?)/i);
+      if (chMatch) {
+        chapterNumber = chMatch[1];
+      }
+
+      return {
+        metadata: {
+          source: 'googledrive',
+          sourceChapterId: resourceId,
+          seriesTitle,
+          chapterTitle: meta.name,
+          chapterNumber,
+          sourceUrl: targetUrl,
+          pageCount: pages.length,
+        },
+        pages,
+      };
+    } else if (isArchive) {
+      const acqId = `acq-drive-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+      const acqDir = getAcquisitionDir(acqId);
+      await fs.promises.mkdir(acqDir, { recursive: true });
+
+      const archiveExt = lowerName.endsWith('.cbz') ? '.cbz' : '.zip';
+      const stagedArchivePath = path.join(acqDir, `source_archive${archiveExt}`);
+
+      await downloadDriveFileToDisk(resourceId, stagedArchivePath, resourceKey);
+
+      const extractionResult = await extractArchive(stagedArchivePath, acqDir);
+
+      if (extractionResult.totalExtracted === 0) {
+        throw new Error(`Archive "${meta.name}" contains no supported images.`);
+      }
+
+      const pages = extractionResult.pages.map((p) => ({
+        id: p.id,
+        originalIndex: p.originalIndex,
+        filename: p.filename,
+        mimeType: p.mimeType,
+        extension: p.extension,
+        sizeBytes: p.sizeBytes,
+        imageUrl: `file://${p.filePath.replace(/\\/g, '/')}`,
+        downloadStatus: 'ready',
+        tempFilePath: p.filePath,
+      }));
+
+      const rawTitle = meta.name.replace(/\.(zip|cbz)$/i, '');
+      let seriesTitle = rawTitle;
+      let chapterNumber = '';
+      const chMatch = rawTitle.match(/ch(?:apter)?\.?\s*([0-9]+(?:\.[0-9]+)?)/i);
+      if (chMatch) {
+        chapterNumber = chMatch[1];
+      }
+
+      return {
+        metadata: {
+          source: 'googledrive',
+          sourceChapterId: resourceId,
+          seriesTitle,
+          chapterTitle: rawTitle,
+          chapterNumber,
+          sourceUrl: targetUrl,
+          pageCount: pages.length,
+          acquisitionId: acqId,
+        },
+        pages,
+      };
+    } else {
+      throw new Error(`Unsupported Google Drive file type "${meta.mimeType}". Please select a folder or a ZIP/CBZ archive.`);
+    }
+  }
+
   throw new Error(`Unsupported source "${host}".`);
 }
 
@@ -2075,15 +2224,39 @@ async function downloadPageImage(imageUrl, referer, options = {}) {
     throw new Error('Invalid image URL.');
   }
 
+  // Pre-extracted disk file fast-path (e.g. from extracted archive)
+  if (imageUrl.startsWith('file://')) {
+    const filePath = path.normalize(new URL(imageUrl).pathname.replace(/^\/([a-zA-Z]:)/, '$1'));
+    const buf = await fs.promises.readFile(filePath);
+    const valid = validateImageBuffer(buf);
+    return {
+      dataBase64: buf.toString('base64'),
+      mimeType: valid.mimeType,
+      extension: valid.extension,
+      sizeBytes: buf.length,
+      filePath,
+    };
+  }
+
   if (!isSsrfSafeUrl(imageUrl, ALLOWED_IMAGE_DOMAINS)) {
     throw new Error(`Image domain is not in the allowlist or is restricted: "${imageUrl}"`);
   }
 
   const isMangaDex = imageUrl.includes('mangadex.');
+  const isGoogle = imageUrl.includes('googleapis.com') || imageUrl.includes('googleusercontent.com') || imageUrl.includes('drive.google.com');
   const headers = {
-    'User-Agent': isMangaDex ? MANGADEX_USER_AGENT : ASURA_USER_AGENT,
+    'User-Agent': isMangaDex ? MANGADEX_USER_AGENT : isGoogle ? 'FolioScript-ChapterFetcher/1.0' : ASURA_USER_AGENT,
     Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
   };
+
+  if (isGoogle) {
+    try {
+      const token = await googleDriveAuthManager.getValidAccessToken();
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    } catch {}
+  }
 
   // Referer resolution & fallback
   let effectiveReferer = referer;

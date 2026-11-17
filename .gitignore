@@ -12,6 +12,7 @@ dist
 dist-ssr
 *.local
 scratch/
+auth/
 
 # Editor directories and files
 .vscode/*

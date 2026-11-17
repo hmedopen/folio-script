@@ -138,6 +138,18 @@ export const Workbench: React.FC<WorkbenchProps> = ({
   const [exportModalMode, setExportModalMode] = useState<'raw_text' | 'typer_script'>('raw_text');
   const [isConfirmingExit, setIsConfirmingExit] = useState(false);
   const [showBoxes, setShowBoxes] = useState(true);
+
+  // Listen for Fast Mode auto-hide box signal
+  useEffect(() => {
+    const handleSetShowBoxes = (e: Event) => {
+      const customEvent = e as CustomEvent<{ showBoxes: boolean }>;
+      if (typeof customEvent.detail?.showBoxes === 'boolean') {
+        setShowBoxes(customEvent.detail.showBoxes);
+      }
+    };
+    window.addEventListener('folio:set-show-boxes', handleSetShowBoxes);
+    return () => window.removeEventListener('folio:set-show-boxes', handleSetShowBoxes);
+  }, []);
   const [isFlipPageActive, setIsFlipPageActive] = useState(false);
   const [canvasViewResetKey, setCanvasViewResetKey] = useState(0);
   const [focusTarget, setFocusTarget] = useState<{ bubbleId: string; box_2d: [number, number, number, number]; trigger: number } | null>(null);

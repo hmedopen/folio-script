@@ -161,6 +161,9 @@ export class ChapterAcquisitionManager {
         return this.getSnapshot();
       }
 
+      if (metadata.acquisitionId) {
+        this.currentAcquisition.acquisitionId = metadata.acquisitionId;
+      }
       this.currentAcquisition.metadata = metadata;
       this.currentAcquisition.pages = pages;
       this.currentAcquisition.totalCount = pages.length;

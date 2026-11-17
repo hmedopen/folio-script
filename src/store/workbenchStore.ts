@@ -1280,6 +1280,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     const sourceLanguageHint = String(snapshot.values['scanning.source_language'] || 'auto');
     const scanProfile = String(snapshot.values['scanning.profile'] || 'balanced');
     const ocrConfidenceThreshold = Number(snapshot.values['scanning.ocr_confidence_threshold'] ?? 0.65);
+    const allowGeminiFallback = Boolean(snapshot.values['scanning.allow_gemini_fallback'] ?? true);
     const enableCropRetries =
       scanProfile === 'fast'
         ? false
@@ -1312,8 +1313,21 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         enableCropRetries,
         cropRetryLimit,
         ocrConfidenceThreshold,
+        allowGeminiFallback,
+        scanProfile,
       },
     }));
+
+    // In Fast Mode: Automatically turn bounding boxes OFF by default on the canvas for clean reading view
+    if (scanProfile === 'fast') {
+      try {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('folio:set-show-boxes', { detail: { showBoxes: false } }));
+        }
+      } catch {
+        // Non-blocking
+      }
+    }
 
     if (unsubscribeBatchScanQueue) {
       unsubscribeBatchScanQueue();
@@ -1364,10 +1378,10 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     const chapterId = state.activeChapterId || undefined;
     const snapshot = settingsService.createOperationSnapshot({ projectId, chapterId });
     const apiKey = snapshot.values['general.gemini_api_key'] || '';
-    const selectedModel = snapshot.values['scanning.model'] || 'gemini-3.8-flash';
+    const selectedModel = (snapshot.values['translation.model'] as GeminiModelKey) || 'gemini-3.8-flash';
     const includeSFX = Boolean(snapshot.values['scanning.include_sfx']);
     const readingConvention = (snapshot.values['scanning.reading_convention'] as any) || 'auto';
-    const sourceLanguageHint = (snapshot.values['ocr.source_language'] as string) || 'auto';
+    const sourceLanguageHint = String(snapshot.values['scanning.source_language'] || 'auto');
     const typerSettings = loadTyperSettings();
 
     set((s) => ({

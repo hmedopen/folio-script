@@ -77,7 +77,6 @@ export const ChapterList: React.FC<ChapterListProps> = ({
 
   // System #6 Unified Confirmation Setting & Armed States
   const isConfirmationEnabled = useConfirmationSetting(activeFolder?.id);
-  const [armedChapterId, setArmedChapterId] = useState<string | null>(null);
   const [armedDeleteChapterId, setArmedDeleteChapterId] = useState<string | null>(null);
 
   const chapters = activeFolder ? activeFolder.chapters : [];
@@ -95,22 +94,10 @@ export const ChapterList: React.FC<ChapterListProps> = ({
   };
 
   const handleChapterClick = (chapter: Chapter) => {
-    if (!isConfirmationEnabled) {
-      setArmedChapterId(null);
-      executeOpenChapter(chapter);
-      return;
-    }
-    if (armedChapterId === chapter.id) {
-      setArmedChapterId(null);
-      executeOpenChapter(chapter);
-    } else {
-      onSelectChapter(chapter.id);
-      setArmedChapterId(chapter.id);
-    }
+    onSelectChapter(chapter.id);
   };
 
   const handleChapterDoubleClick = (chapter: Chapter) => {
-    setArmedChapterId(null);
     executeOpenChapter(chapter);
   };
 
@@ -418,20 +405,13 @@ export const ChapterList: React.FC<ChapterListProps> = ({
                   e.stopPropagation();
                   handleChapterDoubleClick(chapter);
                 }}
-                onMouseLeave={() => {
-                  if (armedChapterId === chapter.id) {
-                    setArmedChapterId(null);
-                  }
-                }}
                 onDragOver={(e) => {
                   e.stopPropagation();
                   setDropTargetChapterId(chapter.id);
                 }}
                 className={`group relative flex items-center justify-between px-5 py-3.5 rounded-2xl cursor-pointer transition-all duration-150 ${
                   isTargeted
-                    ? 'bg-sky-950/60 border-2 border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.3)]'
-                    : armedChapterId === chapter.id
-                    ? 'bg-sky-950/40 border-2 border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.25)]'
+                    ? 'bg-sky-950/60 border border-sky-400 shadow-[0_0_15px_rgba(56,189,248,0.3)]'
                     : isSelected
                     ? 'bg-[#181820] border-2 border-white shadow-[0_0_15px_rgba(255,255,255,0.08)]'
                     : 'bg-[#141418] border border-white/[0.08] hover:border-white/[0.22] hover:bg-[#18181e]'
@@ -444,11 +424,6 @@ export const ChapterList: React.FC<ChapterListProps> = ({
                   }`}>
                     {chapter.name}
                   </span>
-                  {armedChapterId === chapter.id && (
-                    <span className="px-2 py-0.5 rounded-full bg-sky-400 text-black text-xs font-bold animate-pulse pointer-events-none">
-                      Click again to open
-                    </span>
-                  )}
                 </div>
 
                 {/* Right: Pages info & Action Buttons */}

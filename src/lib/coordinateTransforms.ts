@@ -237,3 +237,34 @@ export function isBoxContained(
     inner[3] <= outer[3] + tolerance
   );
 }
+
+/**
+ * Maps a bounding box [ymin, xmin, ymax, xmax] detected on a sub-panel/tile (in 0-1000 tile space)
+ * back to full-page canonical 0-1000 normalized coordinates.
+ */
+export function mapSubRegionBoxToParentPage(
+  tileBox: [number, number, number, number],
+  tilePixelOffsetY: number,
+  tilePixelHeight: number,
+  pagePixelHeight: number
+): [number, number, number, number] {
+  if (pagePixelHeight <= 0 || tilePixelHeight <= 0) {
+    return tileBox;
+  }
+
+  const [tYmin, tXmin, tYmax, tXmax] = tileBox;
+
+  // Convert tile normalized to tile pixels
+  const tilePxYmin = (tYmin / 1000) * tilePixelHeight;
+  const tilePxYmax = (tYmax / 1000) * tilePixelHeight;
+
+  // Add global page offset
+  const pagePxYmin = tilePixelOffsetY + tilePxYmin;
+  const pagePxYmax = tilePixelOffsetY + tilePxYmax;
+
+  // Map to full page 0-1000 space
+  const pageNormYmin = Math.round((pagePxYmin / pagePixelHeight) * 1000);
+  const pageNormYmax = Math.round((pagePxYmax / pagePixelHeight) * 1000);
+
+  return clampBox([pageNormYmin, tXmin, pageNormYmax, tXmax], 1000);
+}

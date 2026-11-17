@@ -77,6 +77,8 @@ export interface ScanPageOptions {
   enableCropRetries?: boolean;
   cropRetryLimit?: number;
   ocrConfidenceThreshold?: number;
+  allowGeminiFallback?: boolean;
+  scanProfile?: 'fast' | 'precision' | 'coming_soon' | string;
   correlationId?: string;
   signal?: AbortSignal;
   hybridDeps?: HybridScanDependencies;
@@ -286,6 +288,8 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
     ocrConfidenceThreshold,
     correlationId,
     configuredTypers: typerSettings.typers,
+    allowGeminiFallback: options.allowGeminiFallback,
+    scanProfile: options.scanProfile,
     signal,
     hybridDeps,
   });
@@ -933,6 +937,7 @@ export async function interpretPageVisualContext(
         sourceLanguageHint,
         correlationId,
         configuredTypers,
+        allowGeminiFallback: true,
         signal,
         hybridDeps,
       });

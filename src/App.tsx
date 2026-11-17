@@ -5,8 +5,6 @@ import { Workbench } from './components/Workbench/Workbench';
 
 import { SettingsModal } from './components/Settings/SettingsModal';
 import { BenchmarkScreen } from './components/Benchmark/BenchmarkScreen';
-import { TrainingStudioModal } from './components/Training/TrainingStudioModal';
-import { isTrainingStudioEnabled } from './lib/training/env';
 import { useWorkbenchStore } from './store/workbenchStore';
 import { initialFolders } from './mockData';
 import type { Folder, Chapter, PageMetadata } from './types';
@@ -93,7 +91,6 @@ export function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isGlobalSettingsOpen, setIsGlobalSettingsOpen] = useState(false);
   const [isBenchmarkOpen, setIsBenchmarkOpen] = useState(false);
-  const [isTrainingStudioOpen, setIsTrainingStudioOpen] = useState(false);
   const [isChapterSnatchOpen, setIsChapterSnatchOpen] = useState(false);
   const [isImageProcessingOpen, setIsImageProcessingOpen] = useState(false);
   const diagnosticsEnabled = isSystemDiagnosticsEnabled() && hasDiagnosticStudioModule;
@@ -565,74 +562,37 @@ export function App() {
                 {activeFolder ? activeFolder.name : "No project selected"}
               </h1>
 
-              <div className="flex items-center gap-2">
-                {diagnosticsEnabled && (
-                  <button
-                    type="button"
-                    onClick={handleToggleDiagnostics}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-mono text-xs font-semibold transition-all cursor-pointer ${
-                      isDiagnosticsOpen
-                        ? 'bg-sky-500/20 border-sky-500/40 text-sky-300'
-                        : 'bg-zinc-900/80 hover:bg-zinc-800 border-white/[0.08] text-zinc-300 hover:text-white'
-                    }`}
-                    title="Open Diagnostic Studio (Dev Only, Ctrl+Shift+D)"
-                  >
-                    <Stethoscope className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Diagnostic Studio</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-300 font-bold border border-sky-500/30">DEV</span>
-                  </button>
-                )}
-
-                {isTrainingStudioEnabled() && (
-                  <button
-                    type="button"
-                    onClick={() => setIsTrainingStudioOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 font-mono text-xs font-semibold shadow-lg shadow-amber-950/20 transition-all cursor-pointer"
-                    title="Open Training Studio (Dev Only)"
-                  >
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                    <span>Training Studio</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">DEV</span>
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  onClick={() => setIsBenchmarkOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono text-zinc-300 hover:text-white bg-zinc-900/80 hover:bg-zinc-800 border border-white/[0.08] transition-colors cursor-pointer"
-                  title="Quality Benchmark Engine"
-                >
-                  <Activity className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Benchmark</span>
-                </button>
-
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setIsChapterSnatchOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono text-zinc-300 hover:text-white bg-zinc-900/80 hover:bg-zinc-800 border border-white/[0.08] transition-colors cursor-pointer"
+                  className="h-9 px-4 rounded-full bg-white text-black text-xs font-semibold tracking-tight flex items-center justify-center gap-2 hover:bg-zinc-100 active:scale-[0.98] transition-all shadow-sm cursor-pointer select-none"
                   title="Fetch manga or webtoon chapters"
                 >
-                  <Download className="w-3.5 h-3.5 text-zinc-300" />
-                  <span>Fetch Chapter</span>
+                  <Download className="w-4 h-4 text-black stroke-[2.2]" />
+                  <span>Fetch</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setIsImageProcessingOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono text-zinc-300 hover:text-white bg-zinc-900/80 hover:bg-zinc-800 border border-white/[0.08] transition-colors cursor-pointer"
+                  className="h-9 px-4 rounded-full bg-white text-black text-xs font-semibold tracking-tight flex items-center justify-center gap-2 hover:bg-zinc-100 active:scale-[0.98] transition-all shadow-sm cursor-pointer select-none"
                   title="Independent Image Merge & Cut Studio"
                 >
-                  <Layers className="w-3.5 h-3.5 text-zinc-300" />
+                  <Layers className="w-4 h-4 text-black stroke-[2.2]" />
                   <span>Merge & Cut</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setIsGlobalSettingsOpen(true)}
-                  className="p-2 rounded-xl text-zinc-400 hover:text-white hover:bg-zinc-800/80 border border-white/[0.08] transition-colors cursor-pointer"
+                  className="p-2 ml-1 flex flex-col justify-center items-center gap-[5px] cursor-pointer hover:opacity-80 active:scale-95 transition-all outline-none"
                   title="Settings (Ctrl+,)"
+                  aria-label="Settings Menu"
                 >
-                  <Sliders className="w-4 h-4" />
+                  <span className="w-6 h-[2.5px] bg-white rounded-full block" />
+                  <span className="w-6 h-[2.5px] bg-white rounded-full block" />
+                  <span className="w-6 h-[2.5px] bg-white rounded-full block" />
                 </button>
               </div>
             </div>
@@ -667,6 +627,10 @@ export function App() {
                   activeFolderId={activeFolderId}
                   hasSelectedChapter={!!selectedChapterId}
                   onSelectFolder={handleSelectFolder}
+                  onDeselectFolder={() => {
+                    setActiveFolderId(null);
+                    setSelectedChapterId(null);
+                  }}
                   onAddFolder={handleAddFolder}
                   onRenameFolder={handleRenameFolder}
                   onDeleteFolder={handleDeleteFolder}
@@ -697,12 +661,6 @@ export function App() {
           <BenchmarkScreen
             isOpen={isBenchmarkOpen}
             onClose={() => setIsBenchmarkOpen(false)}
-          />
-
-          {/* Training Studio Modal (Dev Only) */}
-          <TrainingStudioModal
-            isOpen={isTrainingStudioOpen}
-            onClose={() => setIsTrainingStudioOpen(false)}
           />
 
           {/* Chapter Snatch Modal */}

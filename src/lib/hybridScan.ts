@@ -44,6 +44,7 @@ import { defaultTyperForClass } from './scanAdapter';
 import { buildHybridContextPrompt } from './scanPromptBuilder';
 import { extractCleanJson } from './translationValidator';
 import { createDiagnosticCorrelationId, emitDiagnosticBoundary } from './diagnosticTap';
+import { assembleTaskTrainingContext } from './training/trainingPromptInjection';
 import type { CustomTyperConfig } from '../types/typers';
 import { loadTyperSettings } from '../types/typers';
 import type {
@@ -187,6 +188,8 @@ export interface HybridScanDependencies {
 }
 
 export interface ScanMangaPageHybridOptions extends ScanMangaPageOptions {
+  /** Scanning speed & accuracy engine preset ('fast' | 'precision' | 'coming_soon'). */
+  scanProfile?: 'fast' | 'precision' | 'coming_soon' | string;
   /** Verified sample text from existing page bubbles for safe auto-routing only. */
   sampleTextForAutoRoute?: string;
   /** Optional diagnostic correlation ID from outer orchestrator. */
@@ -678,12 +681,26 @@ async function defaultRunGeminiContextPass(options: {
     signal,
   } = options;
 
-  const systemInstruction = buildHybridContextPrompt({
+  let systemInstruction = buildHybridContextPrompt({
     readingConvention,
     includeSFX,
     sourceLanguageHint,
     configuredTypers,
   });
+
+  // Inject active Reference Sets from Training Studio if present
+  try {
+    const trainingContext = await assembleTaskTrainingContext({
+      task: 'page_scan',
+      model: selectedModel,
+      operationId: `scan_hybrid_${Date.now()}`,
+    });
+    if (trainingContext.hasTrainingContext && trainingContext.systemInstructionDirective) {
+      systemInstruction = `${systemInstruction}\n\n${trainingContext.systemInstructionDirective}`;
+    }
+  } catch {
+    // Training injection is non-blocking
+  }
 
   const mimeType = blob.type || 'image/png';
   const base64Data = await blobToBase64(blob);
@@ -931,6 +948,40 @@ export async function scanMangaPageHybridWithMeta(
 
   const configuredTypers = options.configuredTypers || loadTyperSettings().typers;
   const warnings: string[] = [];
+
+  // 0. FAST MODE ENGINE BYPASS: Directly execute single-pass Gemini cloud scan
+  if (options.scanProfile === 'fast') {
+    const fastResult = await execGeminiFallback({
+      pageId,
+      apiKey,
+      selectedModel,
+      readingConvention,
+      includeSFX,
+      sourceLanguageHint,
+      enableTargetedRetries: false,
+      maxRetries: 0,
+      ocrConfidenceThreshold,
+      correlationId,
+      signal,
+    });
+    return {
+      scanResult: fastResult,
+      meta: {
+        ocrSource: 'gemini_fallback',
+        resolvedRoute: null,
+        effectiveLanguage: null,
+        fallbackReason: 'local_ocr_empty',
+        warnings: [],
+        localCandidateCount: 0,
+        keptCandidateCount: 0,
+        verifiedCandidateCount: 0,
+        addedRegionCount: fastResult.regions.length,
+        droppedCandidateCount: 0,
+        geminiContextFailed: false,
+        cropRetryCount: 0,
+      },
+    };
+  }
 
   const runFallback = async (
     fallbackReason: HybridFallbackReason,

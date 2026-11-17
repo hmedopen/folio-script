@@ -14,9 +14,6 @@ export const ReviewView: React.FC<ReviewViewProps> = ({ getVal, setVal }) => {
         <h2 className="text-sm font-mono uppercase font-semibold tracking-wider text-zinc-100">
           Review & Quality Control
         </h2>
-        <span className="text-xs text-zinc-500 font-mono">
-          System #4: Review strictness profiles, ambiguous OCR gates, and auto-correction
-        </span>
       </div>
 
       <div className="space-y-1">
@@ -28,9 +25,9 @@ export const ReviewView: React.FC<ReviewViewProps> = ({ getVal, setVal }) => {
         >
           <div className="grid grid-cols-3 gap-2 mt-1">
             {[
-              { id: 'conservative', name: 'Conservative', desc: 'Critical blockers only' },
-              { id: 'balanced', name: 'Balanced', desc: 'Standard scanlation QC audit' },
-              { id: 'thorough', name: 'Thorough', desc: 'Deep grammatical audit' },
+              { id: 'conservative', name: 'Conservative' },
+              { id: 'balanced', name: 'Balanced' },
+              { id: 'thorough', name: 'Thorough' },
             ].map((p) => {
               const active = getVal<string>('review.profile') === p.id;
               return (
@@ -38,14 +35,13 @@ export const ReviewView: React.FC<ReviewViewProps> = ({ getVal, setVal }) => {
                   key={p.id}
                   type="button"
                   onClick={() => setVal('review.profile', p.id)}
-                  className={`p-2.5 rounded-md border text-left transition-colors cursor-pointer ${
+                  className={`py-3 px-2 rounded-xl border text-center transition-all cursor-pointer ${
                     active
-                      ? 'bg-white/[0.10] border-white/30 text-white'
-                      : 'bg-[#08080b] border-white/[0.04] text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.02]'
+                      ? 'bg-white border-white text-zinc-950 font-semibold shadow-sm'
+                      : 'bg-[#0e0f14] border-white/[0.08] text-zinc-300 hover:text-white hover:bg-white/[0.04]'
                   }`}
                 >
-                  <div className="text-xs font-medium">{p.name}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{p.desc}</div>
+                  <div className="text-xs font-medium tracking-tight">{p.name}</div>
                 </button>
               );
             })}

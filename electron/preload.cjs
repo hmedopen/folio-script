@@ -50,6 +50,17 @@ const chapterSnatchBridge = {
   cleanupAcquisition: (acquisitionId) => ipcRenderer.invoke('chapterSnatch:cleanupAcquisition', acquisitionId),
 };
 
+const googleDriveBridge = {
+  getAuthState: () => ipcRenderer.invoke('googleDrive:getAuthState'),
+  authenticate: () => ipcRenderer.invoke('googleDrive:authenticate'),
+  signOut: () => ipcRenderer.invoke('googleDrive:signOut'),
+  listExplorerDirectory: (folderId) => ipcRenderer.invoke('googleDrive:listExplorerDirectory', folderId),
+  getClientId: () => ipcRenderer.invoke('googleDrive:getClientId'),
+  setClientId: (clientId) => ipcRenderer.invoke('googleDrive:setClientId', clientId),
+  getApiKey: () => ipcRenderer.invoke('googleDrive:getApiKey'),
+  setApiKey: (apiKey) => ipcRenderer.invoke('googleDrive:setApiKey', apiKey),
+};
+
 const appBridge = {
   platform: process.platform,
   version: '1.0.0',
@@ -58,6 +69,7 @@ const appBridge = {
   diagnostics: diagnosticsBridge,
   localModels: localModelsBridge,
   chapterSnatch: chapterSnatchBridge,
+  googleDrive: googleDriveBridge,
 };
 
 contextBridge.exposeInMainWorld('folioScript', appBridge);
