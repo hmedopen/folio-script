@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { settingsService } from '../../services/settings/settingsService';
 import { useWorkbenchStore } from '../../store/workbenchStore';
 import { SETTINGS_REGISTRY } from '../../services/settings/settingsRegistry';
-import { loadTyperSettings, saveTyperSettings, DEFAULT_TYPERS, type TyperSettings } from '../../types/typers';
+import { loadTyperSettings, saveTyperSettings, type TyperSettings } from '../../types/typers';
 
 import { SettingsFooter } from './SettingsFooter';
 import { SettingsNavigation, type SettingsNavCategory } from './SettingsNavigation';
@@ -23,6 +23,7 @@ export interface SettingsModalProps {
   onClose: () => void;
   onOpenBenchmark?: () => void;
   projectId?: string | null;
+  initialCategory?: SettingsNavCategory;
 }
 
 const getInitialSettingsValues = (projectId: string | null) => {
@@ -50,8 +51,15 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose,
   onOpenBenchmark,
   projectId = null,
+  initialCategory = 'general',
 }) => {
-  const [activeCategory, setActiveCategory] = useState<SettingsNavCategory>('general');
+  const [activeCategory, setActiveCategory] = useState<SettingsNavCategory>(initialCategory);
+
+  useEffect(() => {
+    if (isOpen && initialCategory) {
+      setActiveCategory(initialCategory);
+    }
+  }, [isOpen, initialCategory]);
   const [, setRevision] = useState(() => settingsService.getRevision());
 
   // Hardware Telemetry state

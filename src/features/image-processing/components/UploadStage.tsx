@@ -4,10 +4,9 @@
  */
 
 import React, { useState } from 'react';
-import type { ProcessingSourceImage } from '../core/types';
+import type { ProcessingSourceImage, CutOptions, MergeOptions } from '../core/types';
 import {
   UploadCloud,
-  Plus,
   Trash2,
   ChevronUp,
   ChevronDown,
@@ -20,12 +19,13 @@ import {
   extractFilesFromDataTransfer,
 } from '../../../services/fileIngestion';
 import { decodeImage } from '../engine/imageUtils';
+import { ResolutionTargetModal } from './ResolutionTargetModal';
 
 interface UploadStageProps {
   sourceImages: ProcessingSourceImage[];
   setSourceImages: React.Dispatch<React.SetStateAction<ProcessingSourceImage[]>>;
-  onStartMerge: () => void;
-  onStartCut: () => void;
+  onStartMerge: (options?: MergeOptions) => void;
+  onStartCut: (options?: CutOptions) => void;
   isProcessing: boolean;
 }
 
@@ -38,6 +38,7 @@ export const UploadStage: React.FC<UploadStageProps> = ({
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
+  const [targetModalOperation, setTargetModalOperation] = useState<'cut' | 'merge' | null>(null);
 
   // Ingest files into ProcessingSourceImage items
   const processFiles = async (files: File[]) => {
@@ -55,7 +56,7 @@ export const UploadStage: React.FC<UploadStageProps> = ({
         const originalIndex = baseIndex + i + 1;
         const id = `src-upload-${Date.now()}-${originalIndex}-${Math.random().toString(36).substring(2, 6)}`;
 
-        // Fast dimension read and thumbnail creation
+        // Fast dimension read and thumbnail creation with resilience
         let width = 800;
         let height = 1200;
         let decoded;
@@ -63,6 +64,8 @@ export const UploadStage: React.FC<UploadStageProps> = ({
           decoded = await decodeImage(file, mimeType);
           width = decoded.width;
           height = decoded.height;
+        } catch (_err) {
+          console.warn(`Fallback dimensions for uploaded file: ${file.name}`);
         } finally {
           if (decoded?.close) decoded.close();
         }
@@ -102,10 +105,12 @@ export const UploadStage: React.FC<UploadStageProps> = ({
 
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setIsDragOver(false);
     try {
       const files = await extractFilesFromDataTransfer(e.dataTransfer);
-      await processFiles(files);
+      const finalFiles = files.length > 0 ? files : Array.from(e.dataTransfer.files || []);
+      await processFiles(finalFiles);
     } catch (err) {
       console.error('Failed to drop files:', err);
     }
@@ -158,8 +163,21 @@ export const UploadStage: React.FC<UploadStageProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0a0d] text-zinc-100 select-none">
-      {/* Upload Header Strip */}
+    <div
+      className="flex-1 flex flex-col min-h-0 overflow-hidden bg-[#0a0a0d] text-zinc-100 select-none"
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragOver(false);
+      }}
+      onDrop={handleDrop}
+    >
+      {/* Upload Header Strip without "+ Add Images" button */}
       <div className="px-6 py-3 bg-[#090a0e] border-b border-white/[0.06] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <FileImage className="w-4 h-4 text-zinc-400" />
@@ -179,54 +197,35 @@ export const UploadStage: React.FC<UploadStageProps> = ({
               Clear All
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={handlePickFiles}
-            disabled={isProcessing || isLoadingFiles}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 border border-white/[0.1] text-xs font-mono text-white transition-colors cursor-pointer"
-          >
-            <Plus className="w-3.5 h-3.5 text-zinc-300" />
-            <span>Add Images</span>
-          </button>
         </div>
       </div>
 
-      {/* Main Drop Area & Image Cards */}
+      {/* Main Drop Area & Image Cards (fixed-fit layout, no outer scrollbar on empty state) */}
       <div
-        className={`flex-1 overflow-y-auto p-6 custom-scrollbar transition-colors ${
+        className={`flex-1 overflow-y-auto p-6 custom-scrollbar transition-colors flex flex-col ${
           isDragOver ? 'bg-sky-950/20' : 'bg-[#07070a]'
         }`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setIsDragOver(true);
-        }}
-        onDragLeave={() => setIsDragOver(false)}
-        onDrop={handleDrop}
       >
         {sourceImages.length === 0 ? (
           <div
             onClick={handlePickFiles}
-            className="h-full flex flex-col items-center justify-center text-center p-12 border-2 border-dashed border-white/[0.1] hover:border-white/[0.25] rounded-2xl cursor-pointer transition-colors max-w-xl mx-auto my-8 bg-zinc-900/30"
+            className="w-full max-w-xl max-h-[460px] my-auto mx-auto flex flex-col items-center justify-center text-center p-10 border-2 border-dashed border-white/[0.1] hover:border-white/[0.25] rounded-2xl cursor-pointer transition-colors bg-zinc-900/30"
           >
-            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-white/[0.08] flex items-center justify-center mb-4 text-zinc-400">
-              <UploadCloud className="w-7 h-7 stroke-[1.5]" />
-            </div>
-            <h3 className="text-sm font-semibold text-zinc-200 mb-1">
+            {/* Upload icon directly on background, enlarged */}
+            <UploadCloud className="w-14 h-14 text-zinc-300 stroke-[1.5] mb-4" />
+            <h3 className="text-sm font-semibold text-zinc-100 mb-5">
               Select or Drop Images to Process
             </h3>
-            <p className="text-xs text-zinc-500 leading-relaxed max-w-sm mb-4">
-              Upload multiple manga, manhwa, or webtoon images directly from your computer. Common formats supported (.png, .jpg, .webp, .avif).
-            </p>
             <button
               type="button"
-              className="px-4 py-2 rounded-xl bg-white text-zinc-950 font-semibold text-xs shadow-md hover:bg-zinc-200 transition-colors"
+              disabled={isLoadingFiles}
+              className="px-5 py-2 rounded-xl bg-white text-zinc-950 font-semibold text-xs shadow-md hover:bg-zinc-200 transition-colors cursor-pointer"
             >
-              Browse Files
+              {isLoadingFiles ? 'Loading Images...' : 'Browse Files'}
             </button>
           </div>
         ) : (
-          <div className="space-y-2 pb-6 max-w-4xl mx-auto">
+          <div className="space-y-2 pb-6 max-w-4xl mx-auto w-full">
             {sourceImages.map((src, idx) => (
               <div
                 key={src.id}
@@ -314,28 +313,12 @@ export const UploadStage: React.FC<UploadStageProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Action 1: Merge */}
+          {/* Action 1: Cut (Cut on left!) */}
           <button
             type="button"
-            onClick={onStartMerge}
+            onClick={() => setTargetModalOperation('cut')}
             disabled={sourceImages.length === 0 || isProcessing}
-            className={`h-9 px-4 rounded-xl text-xs font-mono font-semibold flex items-center gap-2 transition-all ${
-              sourceImages.length === 0 || isProcessing
-                ? 'bg-zinc-800 text-zinc-600 border border-white/[0.04] cursor-not-allowed'
-                : 'bg-white text-zinc-950 hover:bg-zinc-200 active:scale-[0.98] cursor-pointer shadow-md'
-            }`}
-            title="Combine sequential images into continuous strips"
-          >
-            <Layers className="w-3.5 h-3.5 text-zinc-950" />
-            <span>Merge ({sourceImages.length})</span>
-          </button>
-
-          {/* Action 2: Cut */}
-          <button
-            type="button"
-            onClick={onStartCut}
-            disabled={sourceImages.length === 0 || isProcessing}
-            className={`h-9 px-4 rounded-xl text-xs font-mono font-medium flex items-center gap-2 transition-all ${
+            className={`h-9 w-32 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
               sourceImages.length === 0 || isProcessing
                 ? 'bg-zinc-900 text-zinc-600 border border-white/[0.04] cursor-not-allowed'
                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 hover:text-white border border-white/[0.12] cursor-pointer'
@@ -343,10 +326,44 @@ export const UploadStage: React.FC<UploadStageProps> = ({
             title="Split tall webtoon images into standard page segments"
           >
             <Scissors className="w-3.5 h-3.5" />
-            <span>Cut ({sourceImages.length})</span>
+            <span>Cut</span>
+          </button>
+
+          {/* Action 2: Merge (Merge on right!) */}
+          <button
+            type="button"
+            onClick={() => setTargetModalOperation('merge')}
+            disabled={sourceImages.length === 0 || isProcessing}
+            className={`h-9 w-32 px-4 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+              sourceImages.length === 0 || isProcessing
+                ? 'bg-zinc-800 text-zinc-600 border border-white/[0.04] cursor-not-allowed'
+                : 'bg-white text-zinc-950 hover:bg-zinc-200 active:scale-[0.98] cursor-pointer shadow-md'
+            }`}
+            title="Combine sequential images into continuous strips"
+          >
+            <Layers className="w-3.5 h-3.5 text-zinc-950" />
+            <span>Merge</span>
           </button>
         </div>
       </div>
+
+      {/* Resolution Target & Estimation Modal */}
+      {targetModalOperation && (
+        <ResolutionTargetModal
+          isOpen={Boolean(targetModalOperation)}
+          operation={targetModalOperation}
+          sourceImages={sourceImages}
+          onClose={() => setTargetModalOperation(null)}
+          onConfirm={(opts) => {
+            if (targetModalOperation === 'cut') {
+              onStartCut(opts);
+            } else {
+              onStartMerge(opts);
+            }
+            setTargetModalOperation(null);
+          }}
+        />
+      )}
     </div>
   );
 };

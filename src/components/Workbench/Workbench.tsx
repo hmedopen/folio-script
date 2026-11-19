@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import type { Folder, Chapter } from '../../types';
 import type { BubbleItem } from '../../types/workbench';
 import { useWorkbenchStore } from '../../store/workbenchStore';
-import { getPageBlob, getPageBubbles } from '../../services/db';
+import { getPageBlob } from '../../services/db';
 import { CanvasPane } from './CanvasPane';
 import { FeedPane } from './FeedPane';
 import { UtilityRail, type UtilityRailTool } from './UtilityRail';
@@ -12,8 +12,7 @@ import { BenchmarkScreen } from '../Benchmark/BenchmarkScreen';
 import { VirtualKeyboard } from '../Tools/VirtualKeyboard';
 import { TypeRModal } from '../Export/TypeRModal';
 import { ingestImageFiles, pickImageFiles } from '../../services/fileIngestion';
-import { compileRawTextExtract } from '../../lib/compileTypeR';
-import { deriveFallbackTyperColor, loadTyperSettings, normalizeHexColor } from '../../types/typers';
+import { deriveFallbackTyperColor, normalizeHexColor } from '../../types/typers';
 import {
   ArrowLeft, 
   Menu, 
@@ -41,6 +40,11 @@ import { ManualSelectionPanel } from '../../features/manual-selection/components
 import { useManualControllerStore } from '../../features/manual-selection/services/manualActionsService';
 import { shouldHandleWorkspaceShortcut } from '../../features/manual-selection/selection/shortcuts';
 import { useTyperSettings } from '../../features/manual-selection/symbols/useTyperSettings';
+import { ScanFloatingPanel } from './ScanFloatingPanel';
+import { ReviewFloatingPanel } from './ReviewFloatingPanel';
+import { ExtractFloatingPanel } from './ExtractFloatingPanel';
+import { usePageDeletionCoordinator } from './usePageDeletionCoordinator';
+import type { SettingsNavCategory } from '../Settings/SettingsNavigation';
 
 interface WorkbenchProps {
   folder: Folder | null;
@@ -134,8 +138,8 @@ export const Workbench: React.FC<WorkbenchProps> = ({
     url: null,
   });
   const [isZoomDropdownOpen, setIsZoomDropdownOpen] = useState(false);
-  const [exportModalScope, setExportModalScope] = useState<'entire' | 'active'>('entire');
-  const [exportModalMode, setExportModalMode] = useState<'raw_text' | 'typer_script'>('raw_text');
+  const [exportModalScope] = useState<'entire' | 'active'>('entire');
+  const [exportModalMode] = useState<'raw_text' | 'typer_script'>('raw_text');
   const [isConfirmingExit, setIsConfirmingExit] = useState(false);
   const [showBoxes, setShowBoxes] = useState(true);
 
@@ -163,6 +167,11 @@ export const Workbench: React.FC<WorkbenchProps> = ({
   const zoomMenuRef = useRef<HTMLDivElement>(null);
   const [deletingPageId, setDeletingPageId] = useState<string | null>(null);
   const [isBenchmarkOpen, setIsBenchmarkOpen] = useState(false);
+  const pageBarRef = useRef<HTMLDivElement>(null);
+  const [isScanPanelOpen, setIsScanPanelOpen] = useState(false);
+  const [isReviewPanelOpen, setIsReviewPanelOpen] = useState(false);
+  const [isExtractPanelOpen, setIsExtractPanelOpen] = useState(false);
+  const [settingsInitialCategory, setSettingsInitialCategory] = useState<SettingsNavCategory>('general');
   const typerSettings = useTyperSettings();
   const setManualDrawing = useManualControllerStore((s) => s.setDrawing);
 
@@ -201,7 +210,28 @@ export const Workbench: React.FC<WorkbenchProps> = ({
   }, []);
 
   const pages = chapter?.pageList || [];
-  const displayPages = pendingPages || pages;
+  const rawEffectivePageId = activePageId || (pendingPages ? pendingPages[0]?.id : pages[0]?.id) || null;
+  const currentImageUrl =
+    rawEffectivePageId && loadedBlobState.pageId === rawEffectivePageId
+      ? loadedBlobState.url
+      : null;
+
+  const deletionCoordinator = usePageDeletionCoordinator({
+    pages,
+    effectivePageId: rawEffectivePageId,
+    currentImageUrl,
+    containerRef: pageBarRef,
+    onDeletePage,
+    onSelectPage: (nextId) => {
+      setActivePageId(nextId);
+      if (!nextId) {
+        setLoadedBlobState({ pageId: null, url: null });
+        setSelectedBubbleId(null);
+      }
+    },
+  });
+
+  const displayPages = pendingPages || deletionCoordinator.displayPages;
   const effectivePageId = activePageId || displayPages[0]?.id || null;
   const currentPageIndex = effectivePageId ? displayPages.findIndex((p) => p.id === effectivePageId) : -1;
   const activePageNum = currentPageIndex >= 0 ? currentPageIndex + 1 : 0;
@@ -216,9 +246,33 @@ export const Workbench: React.FC<WorkbenchProps> = ({
       : '#2563EB';
   }, [typerSettings.typers, manualSelectedTyperId]);
 
-  // Workspace Utility Rail Tools definition (Virtual Keyboard, Manual Selection, Diagnostics, and Dev-Only Diagnostic Studio)
+  // Workspace Utility Rail Tools definition (Scan, Review, Extract, Manual Selection, Virtual Keyboard, Diagnostics, and Dev-Only Diagnostic Studio)
   const utilityTools: UtilityRailTool[] = useMemo(() => {
     const base: UtilityRailTool[] = [
+      {
+        id: 'scan-panel',
+        name: 'Scan',
+        description: 'Open floating Scan controls to run OCR and transcription.',
+        icon: Sparkles,
+        onClick: () => setIsScanPanelOpen((prev) => !prev),
+        isActive: isScanPanelOpen,
+      },
+      {
+        id: 'review-panel',
+        name: 'Review',
+        description: 'Open floating Review & Quality Control audit panel.',
+        icon: Search,
+        onClick: () => setIsReviewPanelOpen((prev) => !prev),
+        isActive: isReviewPanelOpen,
+      },
+      {
+        id: 'extract-panel',
+        name: 'Extract',
+        description: 'Open floating TypeR script and raw text exporter.',
+        icon: FileText,
+        onClick: () => setIsExtractPanelOpen((prev) => !prev),
+        isActive: isExtractPanelOpen,
+      },
       {
         id: 'manual-selection',
         name: 'Manual Selection',
@@ -258,6 +312,9 @@ export const Workbench: React.FC<WorkbenchProps> = ({
     }
     return base;
   }, [
+    isScanPanelOpen,
+    isReviewPanelOpen,
+    isExtractPanelOpen,
     toggleManualSelection,
     isManualSelectionOpen,
     toggleKeyboard,
@@ -315,6 +372,10 @@ export const Workbench: React.FC<WorkbenchProps> = ({
 
   // Phase 3.2: Reorder Drag & Drop Handlers
   const handleTabDragStart = (e: React.DragEvent, index: number) => {
+    if (deletionCoordinator.isTransitionActive) {
+      e.preventDefault();
+      return;
+    }
     setDraggedPageIdx(index);
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', String(index));
@@ -379,6 +440,76 @@ export const Workbench: React.FC<WorkbenchProps> = ({
   const hasPrevPage = currentPageIndex > 0;
   const hasNextPage = currentPageIndex >= 0 && currentPageIndex < pages.length - 1;
 
+  // Anticipatory dynamic edge scroll when selecting a page tab
+  const handlePageTabClick = (pageId: string) => {
+    if (deletionCoordinator.isTransitionActive) return;
+    setDeletingPageId(null);
+    setIsConfirmingExit(false);
+    setActivePageId(pageId);
+
+    if (pageBarRef.current) {
+      const container = pageBarRef.current;
+      const targetEl = container.querySelector(`[data-page-id="${pageId}"]`) as HTMLElement | null;
+      if (targetEl) {
+        const cRect = container.getBoundingClientRect();
+        const elRect = targetEl.getBoundingClientRect();
+        // Buffer to leave ~3 upcoming unselected pages visible (~260px)
+        const forwardBuffer = 260;
+        const backwardBuffer = 200;
+
+        if (elRect.right + forwardBuffer > cRect.right) {
+          const scrollDistance = elRect.right + forwardBuffer - cRect.right;
+          container.scrollTo({
+            left: container.scrollLeft + scrollDistance,
+            behavior: 'smooth',
+          });
+        } else if (elRect.left - backwardBuffer < cRect.left) {
+          const scrollDistance = cRect.left - (elRect.left - backwardBuffer);
+          container.scrollTo({
+            left: Math.max(0, container.scrollLeft - scrollDistance),
+            behavior: 'smooth',
+          });
+        }
+      }
+    }
+  };
+
+  // Auto-scroll page shelf when effectivePageId changes (flip page, next/prev, hotkeys)
+  useEffect(() => {
+    if (deletionCoordinator.isTransitionActive) return;
+    if (!effectivePageId || !pageBarRef.current) return;
+    const container = pageBarRef.current;
+    const activeEl = container.querySelector(`[data-page-id="${effectivePageId}"]`) as HTMLElement | null;
+    if (activeEl) {
+      const cRect = container.getBoundingClientRect();
+      const elRect = activeEl.getBoundingClientRect();
+      const forwardBuffer = 260;
+      const backwardBuffer = 200;
+
+      if (elRect.right + forwardBuffer > cRect.right) {
+        const scrollDistance = elRect.right + forwardBuffer - cRect.right;
+        container.scrollTo({
+          left: container.scrollLeft + scrollDistance,
+          behavior: 'smooth',
+        });
+      } else if (elRect.left - backwardBuffer < cRect.left) {
+        const scrollDistance = cRect.left - (elRect.left - backwardBuffer);
+        container.scrollTo({
+          left: Math.max(0, container.scrollLeft - scrollDistance),
+          behavior: 'smooth',
+        });
+      }
+    }
+  }, [effectivePageId, deletionCoordinator.isTransitionActive]);
+
+  // Smooth horizontal scroll using mouse wheel directly over page shelf
+  const handlePageBarWheel = (e: React.WheelEvent<HTMLDivElement>) => {
+    if (pageBarRef.current && e.deltaY !== 0) {
+      e.preventDefault();
+      pageBarRef.current.scrollLeft += e.deltaY;
+    }
+  };
+
   const handlePrevPage = () => {
     if (hasPrevPage) {
       setDeletingPageId(null);
@@ -411,37 +542,16 @@ export const Workbench: React.FC<WorkbenchProps> = ({
 
   const executeDeletePage = (pageId: string) => {
     setDeletingPageId(null);
-
-    // If deleting the currently displayed/effective page, calculate next page navigation
-    if (pageId === effectivePageId) {
-      const deletedIdx = pages.findIndex((p) => p.id === pageId);
-      if (deletedIdx >= 0) {
-        let nextId: string | null = null;
-        if (deletedIdx + 1 < pages.length) {
-          nextId = pages[deletedIdx + 1].id;
-        } else if (deletedIdx > 0) {
-          nextId = pages[deletedIdx - 1].id;
-        } else {
-          nextId = null; // was the only page
-        }
-
-        setActivePageId(nextId);
-        if (!nextId) {
-          setLoadedBlobState({ pageId: null, url: null });
-          setSelectedBubbleId(null);
-        }
-      }
+    if (pendingPages) {
+      setPendingPages(null);
+      setSaveOrderArmed(false);
     }
-
-    try {
-      onDeletePage?.(pageId);
-    } catch (err) {
-      console.error('Failed to execute page deletion', err);
-    }
+    deletionCoordinator.startDeletion(pageId);
   };
 
   const handleDeletePageClick = (e: React.MouseEvent, pageId: string) => {
     e.stopPropagation();
+    if (deletionCoordinator.isTransitionActive) return;
     if (!isDoubleConfirmEnabled) {
       executeDeletePage(pageId);
       return;
@@ -501,6 +611,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
 
   // Sync activePageId with current chapter pages collection
   useEffect(() => {
+    if (deletionCoordinator.isTransitionActive) return;
     if (!pages || pages.length === 0) {
       if (activePageId !== null) {
         setActivePageId(null);
@@ -513,10 +624,11 @@ export const Workbench: React.FC<WorkbenchProps> = ({
     if (activePageId && !pages.some((p) => p.id === activePageId)) {
       setActivePageId(pages[0]?.id || null);
     }
-  }, [pages, activePageId, setActivePageId, loadedBlobState.pageId]);
+  }, [pages, activePageId, setActivePageId, loadedBlobState.pageId, deletionCoordinator.isTransitionActive]);
 
   // Req #8: Reset canvas zoom & view when switching pages
   useEffect(() => {
+    if (deletionCoordinator.isTransitionActive) return;
     if (effectivePageId && prevPageIdRef.current && prevPageIdRef.current !== effectivePageId) {
       resetZoom();
       setCanvasViewResetKey((k) => k + 1);
@@ -527,7 +639,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
       setSelectedBubbleId(null);
     }
     prevPageIdRef.current = effectivePageId;
-  }, [effectivePageId, resetZoom, setSelectedBubbleId]);
+  }, [effectivePageId, resetZoom, setSelectedBubbleId, deletionCoordinator.isTransitionActive]);
 
   // Global Keyboard shortcuts: Escape, Ctrl+, Ctrl+K, Manual Selection modes (1/2/3/Del), J, K (IME & focus guarded)
   useEffect(() => {
@@ -568,6 +680,12 @@ export const Workbench: React.FC<WorkbenchProps> = ({
           setIsKeyboardOpen(false);
         } else if (isManualSelectionOpen) {
           setIsManualSelectionOpen(false);
+        } else if (isScanPanelOpen) {
+          setIsScanPanelOpen(false);
+        } else if (isReviewPanelOpen) {
+          setIsReviewPanelOpen(false);
+        } else if (isExtractPanelOpen) {
+          setIsExtractPanelOpen(false);
         } else {
           onBack();
         }
@@ -629,6 +747,9 @@ export const Workbench: React.FC<WorkbenchProps> = ({
     setIsTypeRModalOpen,
     setIsKeyboardOpen,
     setIsManualSelectionOpen,
+    isScanPanelOpen,
+    isReviewPanelOpen,
+    isExtractPanelOpen,
     setManualSelectionMode,
     undoBubbleAction,
     redoBubbleAction,
@@ -725,65 +846,6 @@ export const Workbench: React.FC<WorkbenchProps> = ({
       await runChapterReview(chapter?.id || 'chapter-01', [{ pageId: effectivePageId, pageIndex: activePageNum }], folder?.id, isDraftChapter);
     } catch (e: any) {
       console.error('Review page error:', e);
-    }
-  };
-
-  const handleExtractPage = () => {
-    setExportModalScope('active');
-    setExportModalMode('raw_text');
-    setIsTypeRModalOpen(true);
-    const typerCfg = loadTyperSettings();
-    const text = compileRawTextExtract({
-      chapterName: chapter?.name || 'CHAPTER 01',
-      pages: [{ pageIndex: activePageNum, bubbles: currentBubbles }],
-      includePageHeaders: false,
-      includeIndexTags: true,
-      includePrefixTags: typerCfg.includeTyperSymbols,
-      symbolPosition: typerCfg.symbolPosition,
-      textDirection: typerCfg.textDirection,
-    });
-    if (text) {
-      navigator.clipboard?.writeText(text).catch(() => {});
-    }
-  };
-
-  const handleExtractAll = async () => {
-    setExportModalScope('entire');
-    setExportModalMode('raw_text');
-    setIsTypeRModalOpen(true);
-    const typerCfg = loadTyperSettings();
-
-    // Ensure all pages have their persisted bubble records loaded from IndexedDB (F-06)
-    const completePagesForExport: Array<{ pageIndex: number; bubbles: BubbleItem[] }> = [];
-    for (const p of pages) {
-      let pageBubbles = bubblesByPage[p.id];
-      if (!pageBubbles || pageBubbles.length === 0) {
-        try {
-          const stored = await getPageBubbles(p.id);
-          if (stored && stored.length > 0) {
-            pageBubbles = stored;
-          }
-        } catch (e) {
-          console.warn(`[ExtractAll] Could not load persisted bubbles for page ${p.id}:`, e);
-        }
-      }
-      completePagesForExport.push({
-        pageIndex: p.index,
-        bubbles: pageBubbles || [],
-      });
-    }
-
-    const text = compileRawTextExtract({
-      chapterName: chapter?.name || 'CHAPTER 01',
-      pages: completePagesForExport,
-      includePageHeaders: true,
-      includeIndexTags: true,
-      includePrefixTags: typerCfg.includeTyperSymbols,
-      symbolPosition: typerCfg.symbolPosition,
-      textDirection: typerCfg.textDirection,
-    });
-    if (text) {
-      navigator.clipboard?.writeText(text).catch(() => {});
     }
   };
 
@@ -926,22 +988,25 @@ export const Workbench: React.FC<WorkbenchProps> = ({
           <div className="h-4 w-px bg-white/10 shrink-0" />
 
           {/* Page Pills with Drag & Drop Reordering + Filename Tooltips */}
-          <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
+          <div ref={pageBarRef} onWheel={handlePageBarWheel} className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar">
             {displayPages.length > 0 ? (
               <>
                 {displayPages.map((p, idx) => {
                   const isTabActive = effectivePageId === p.id;
-                  const pageNum = p.index || idx + 1;
+                  const pageNum = deletionCoordinator.displayedPageNum(p, idx);
                   const isPageScanning = pageStatuses[p.id] === 'scanning';
                   const isArmingDelete = deletingPageId === p.id;
                   const isDropTarget = dropTargetIdx === idx && draggedPageIdx !== idx;
+                  const isBeingDeleted = deletionCoordinator.deletedPageId === p.id;
+                  const isDisappearing = isBeingDeleted && deletionCoordinator.phase === 'disappearing';
 
-                  if (!isTabActive) {
+                  if (!isTabActive && !isBeingDeleted) {
                     return (
                       <button
                         key={p.id}
+                        data-page-id={p.id}
                         type="button"
-                        draggable
+                        draggable={!deletionCoordinator.isTransitionActive}
                         onDragStart={(e) => handleTabDragStart(e, idx)}
                         onDragOver={(e) => handleTabDragOver(e, idx)}
                         onDrop={(e) => handleTabDrop(e, idx)}
@@ -949,7 +1014,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                         onMouseEnter={(e) => handlePageTabMouseEnter(e, p.fileName)}
                         onMouseMove={handlePageTabMouseMove}
                         onMouseLeave={handlePageTabMouseLeave}
-                        onClick={() => { setDeletingPageId(null); setIsConfirmingExit(false); setActivePageId(p.id); }}
+                        onClick={() => handlePageTabClick(p.id)}
                         className={`relative transition-all duration-150 cursor-pointer inline-flex items-center justify-center w-[76px] min-w-[76px] max-w-[76px] h-8 rounded-full shrink-0 text-xs text-center whitespace-nowrap font-medium ${
                           isDropTarget
                             ? 'border-2 border-sky-400 bg-sky-950/40 text-white shadow-[0_0_12px_rgba(56,189,248,0.3)]'
@@ -967,8 +1032,10 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                   return (
                     <div
                       key={p.id}
+                      data-page-id={p.id}
                       data-page-delete-pill={p.id}
-                      draggable={!isArmingDelete}
+                      data-transition-phase={isDisappearing ? 'disappearing' : undefined}
+                      draggable={!isArmingDelete && !deletionCoordinator.isTransitionActive}
                       onDragStart={(e) => handleTabDragStart(e, idx)}
                       onDragOver={(e) => handleTabDragOver(e, idx)}
                       onDrop={(e) => handleTabDrop(e, idx)}
@@ -977,7 +1044,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                       onMouseMove={handlePageTabMouseMove}
                       onMouseLeave={() => {
                         handlePageTabMouseLeave();
-                        if (deletingPageId === p.id) {
+                        if (deletingPageId === p.id && !deletionCoordinator.isTransitionActive) {
                           setDeletingPageId(null);
                         }
                       }}
@@ -986,13 +1053,14 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                           ? 'ring-2 ring-sky-400 min-w-[104px]'
                           : ''
                       } ${
-                        isArmingDelete
+                        isArmingDelete || isBeingDeleted
                           ? 'bg-red-500 text-white min-w-[104px]'
                           : 'bg-white text-zinc-950 min-w-[104px]'
-                      }`}
+                      } ${isDisappearing ? 'pointer-events-none' : ''}`}
                     >
                       <button
                         type="button"
+                        disabled={deletionCoordinator.isTransitionActive}
                         onClick={(e) => {
                           if (isArmingDelete) {
                             e.stopPropagation();
@@ -1000,7 +1068,7 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                           }
                         }}
                         className={`flex-1 h-full px-3 inline-flex items-center justify-center text-xs font-bold rounded-full text-center whitespace-nowrap relative ${
-                          isArmingDelete
+                          isArmingDelete || isBeingDeleted
                             ? 'text-white cursor-pointer'
                             : 'text-zinc-950 cursor-grab active:cursor-grabbing'
                         }`}
@@ -1008,13 +1076,14 @@ export const Workbench: React.FC<WorkbenchProps> = ({
                         {isPageScanning && (
                           <span className="absolute left-1.5 w-1.5 h-1.5 rounded-full bg-sky-400 animate-ping pointer-events-none" />
                         )}
-                        <span className="pointer-events-none">{isArmingDelete ? 'Delete?' : `Page ${pageNum}`}</span>
+                        <span className="pointer-events-none">{isArmingDelete || isBeingDeleted ? 'Delete?' : `Page ${pageNum}`}</span>
                       </button>
                       <button
                         type="button"
+                        disabled={deletionCoordinator.isTransitionActive}
                         onClick={(e) => handleDeletePageClick(e, p.id)}
                         className={`mr-2 w-4 h-4 rounded-full flex items-center justify-center transition-colors shrink-0 cursor-pointer ${
-                          isArmingDelete
+                          isArmingDelete || isBeingDeleted
                             ? 'bg-white/20 hover:bg-white/40 text-white'
                             : 'bg-zinc-200 hover:bg-zinc-300 text-zinc-950'
                         }`}
@@ -1245,120 +1314,28 @@ export const Workbench: React.FC<WorkbenchProps> = ({
           </ToolbarTooltip>
         </div>
 
-        {/* Subheader Actions: Page actions grouped and aligned on the right of the page toolbar area; Batch actions at far right */}
-        <div className="flex-1 flex items-center justify-between gap-2 overflow-x-auto py-0.5 custom-scrollbar">
-          {/* Phase 4.1: Page Actions Group — Scan Page | Review Page | Extract Page */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleScanThisPage}
-              disabled={isScanningSinglePage}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-medium whitespace-nowrap transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                isScanningSinglePage
-                  ? 'bg-[#181920] border-sky-500/40 text-sky-300 animate-pulse'
-                  : 'bg-[#121317] border-white/[0.08] hover:bg-[#181920] hover:border-white/[0.16] text-zinc-200'
-              }`}
-              title="Scan Current Page OCR & Translate"
-            >
-              {isScanningSinglePage ? (
-                <svg className="w-3.5 h-3.5 animate-spin text-sky-300" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-              ) : (
-                <Sparkles className="w-3.5 h-3.5 text-zinc-300" />
-              )}
-              <span>Scan Page</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleReviewThisPage}
-              disabled={isReviewingSinglePage}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-medium whitespace-nowrap transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                isReviewingSinglePage
-                  ? 'bg-[#181920] border-amber-400/40 text-amber-300 animate-pulse'
-                  : 'bg-[#121317] border-white/[0.08] hover:bg-[#181920] hover:border-white/[0.16] text-zinc-200'
-              }`}
-              title={flaggedCount > 0 ? `Review Page (${flaggedCount} flags)` : "Review Page"}
-            >
-              {isReviewingSinglePage ? (
-                <svg className="w-3.5 h-3.5 animate-spin text-amber-300" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-              ) : (
-                <Search className="w-3.5 h-3.5 text-zinc-300" />
-              )}
-              <span>Review Page</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleExtractPage}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#121317] border border-white/[0.08] hover:bg-[#181920] hover:border-white/[0.16] text-xs font-medium whitespace-nowrap text-zinc-200 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
-              title="Extract Current Page Text (No Translation)"
-            >
-              <FileText className="w-3.5 h-3.5 text-zinc-300" />
-              <span>Extract Page</span>
-            </button>
-          </div>
-
-          {/* Phase 4.1: Batch Actions Group — Extract All | Review All | Scan All at the far right */}
-          <div className="flex items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={handleExtractAll}
-              className="flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#121317] border border-white/[0.08] hover:bg-[#181920] hover:border-white/[0.16] text-xs font-medium whitespace-nowrap text-zinc-200 transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
-              title="Extract All Chapter Text (No Translation)"
-            >
-              <FileText className="w-3.5 h-3.5 text-zinc-300" />
-              <span>Extract All</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleReviewChapterClick}
-              disabled={isReviewingChapter}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                isReviewingChapter
-                  ? 'bg-amber-300 text-black animate-pulse'
-                  : 'bg-amber-400 hover:bg-amber-300 text-black'
-              }`}
-              title="Review Entire Chapter"
-            >
-              {isReviewingChapter ? (
-                <svg className="w-3.5 h-3.5 animate-spin text-black" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-              ) : (
-                <Search className="w-3.5 h-3.5" />
-              )}
-              <span>Review All</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={handleScanAll}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
-                isScanningActive
-                  ? 'bg-blue-400 text-white animate-pulse'
-                  : 'bg-blue-600 hover:bg-blue-500 text-white'
-              }`}
-              title="Batch Scan Entire Chapter"
-            >
-              {isScanningActive ? (
-                <svg className="w-3.5 h-3.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                </svg>
-              ) : (
-                <Sparkles className="w-3.5 h-3.5" />
-              )}
-              <span>{isScanningActive && scanProgressText ? scanProgressText : 'Scan All'}</span>
-            </button>
-          </div>
+        {/* Subheader Actions: Batch Scan All at the far right */}
+        <div className="flex-1 flex items-center justify-end gap-2 py-0.5">
+          <button
+            type="button"
+            onClick={handleScanAll}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-all cursor-pointer shadow-sm active:scale-95 shrink-0 ${
+              isScanningActive
+                ? 'bg-blue-500 text-white animate-pulse'
+                : 'bg-blue-600 hover:bg-blue-500 text-white shadow-[0_0_12px_rgba(37,99,235,0.3)]'
+            }`}
+            title="Batch Scan Entire Chapter"
+          >
+            {isScanningActive ? (
+              <svg className="w-3.5 h-3.5 animate-spin text-white" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+              </svg>
+            ) : (
+              <Sparkles className="w-3.5 h-3.5" />
+            )}
+            <span>{isScanningActive && scanProgressText ? scanProgressText : 'Scan All'}</span>
+          </button>
         </div>
       </div>
 
@@ -1369,8 +1346,11 @@ export const Workbench: React.FC<WorkbenchProps> = ({
           <CanvasPane
             projectId={folder?.id ?? null}
             imageUrl={imageUrl}
-            isLoading={isLoadingBlob}
+            isLoading={isLoadingBlob && !deletionCoordinator.isViewerCrossfading}
             pageFileName={pages[currentPageIndex]?.fileName}
+            outgoingImageUrl={deletionCoordinator.outgoingImageUrl}
+            isCrossfading={deletionCoordinator.isViewerCrossfading}
+            crossfadeDuration={deletionCoordinator.viewerCrossfadeDuration}
             bubbles={currentBubbles}
             selectedBubbleId={selectedBubbleId}
             focusTarget={focusTarget}
@@ -1477,12 +1457,57 @@ export const Workbench: React.FC<WorkbenchProps> = ({
         onClose={() => setIsSettingsOpen(false)}
         onOpenBenchmark={() => setIsBenchmarkOpen(true)}
         projectId={folder?.id}
+        initialCategory={settingsInitialCategory}
       />
 
       {/* System #6 Quality Benchmark Screen */}
       <BenchmarkScreen
         isOpen={isBenchmarkOpen}
         onClose={() => setIsBenchmarkOpen(false)}
+      />
+
+      {/* Floating Scan Controls Panel */}
+      <ScanFloatingPanel
+        isOpen={isScanPanelOpen}
+        onClose={() => setIsScanPanelOpen(false)}
+        onOpenSettings={() => {
+          setSettingsInitialCategory('scanning');
+          setIsSettingsOpen(true);
+        }}
+        onScanThisPage={handleScanThisPage}
+        onScanAll={handleScanAll}
+        isScanningSinglePage={isScanningSinglePage}
+        isScanningActive={isScanningActive}
+        scanProgressText={scanProgressText}
+      />
+
+      {/* Floating Review & Quality Control Panel */}
+      <ReviewFloatingPanel
+        isOpen={isReviewPanelOpen}
+        onClose={() => setIsReviewPanelOpen(false)}
+        onOpenSettings={() => {
+          setSettingsInitialCategory('review');
+          setIsSettingsOpen(true);
+        }}
+        onReviewThisPage={handleReviewThisPage}
+        onReviewChapter={handleReviewChapterClick}
+        isReviewingSinglePage={isReviewingSinglePage}
+        isReviewingChapter={isReviewingChapter}
+        flaggedCount={flaggedCount}
+      />
+
+      {/* Floating TypeR & Text Extraction Panel */}
+      <ExtractFloatingPanel
+        isOpen={isExtractPanelOpen}
+        onClose={() => setIsExtractPanelOpen(false)}
+        onOpenSettings={() => {
+          setSettingsInitialCategory('workspace');
+          setIsSettingsOpen(true);
+        }}
+        bubbles={currentBubbles}
+        allChapterPages={allChapterPagesForExport}
+        chapterName={chapter?.name || 'CHAPTER 01'}
+        activePageIndex={activePageNum}
       />
 
       {/* 5. TypeR / Text Export Modal */}

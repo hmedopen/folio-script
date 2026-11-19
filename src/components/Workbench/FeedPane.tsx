@@ -111,7 +111,7 @@ export const FeedPane: React.FC<FeedPaneProps> = ({
           onDragEnd={handleDragEnd}
         />
       ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-8 m-2 border border-dashed border-white/[0.08] rounded-2xl bg-[#0e0f14]/50">
+        <div className="h-full w-full flex flex-col items-center justify-center text-center p-8 border border-dashed border-white/[0.08] rounded-2xl bg-[#0e0f14]/50">
           <div className="w-10 h-10 rounded-xl bg-zinc-900 border border-white/[0.08] flex items-center justify-center text-zinc-500 mb-2.5">
             <MessageSquare className="w-5 h-5 text-zinc-400 stroke-[1.5]" />
           </div>

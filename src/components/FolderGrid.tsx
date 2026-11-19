@@ -6,9 +6,11 @@ import {
   Pencil, 
   Trash2, 
   FilePlus,
-  Compass
+  Compass,
+  Database
 } from 'lucide-react';
 import { Modal } from './Modal';
+import { ProjectDataModal } from './ProjectDataModal';
 
 interface FolderGridProps {
   folders: Folder[];
@@ -41,6 +43,7 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
   const [editingFolder, setEditingFolder] = useState<Folder | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [deletingFolder, setDeletingFolder] = useState<Folder | null>(null);
+  const [dataFolder, setDataFolder] = useState<Folder | null>(null);
 
   // Context menu on right click
   const [contextMenu, setContextMenu] = useState<{ folder: Folder; x: number; y: number } | null>(null);
@@ -206,6 +209,17 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
 
             <button
               onClick={() => {
+                setDataFolder(contextMenu.folder);
+                setContextMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors cursor-pointer"
+            >
+              <Database className="w-3.5 h-3.5 text-zinc-400" />
+              <span>Data</span>
+            </button>
+
+            <button
+              onClick={() => {
                 setEditingFolder(contextMenu.folder);
                 setRenameValue(contextMenu.folder.name);
                 setContextMenu(null);
@@ -304,6 +318,13 @@ export const FolderGrid: React.FC<FolderGridProps> = ({
           </div>
         </form>
       </Modal>
+
+      {/* Project Data Modal */}
+      <ProjectDataModal
+        folder={dataFolder}
+        isOpen={Boolean(dataFolder)}
+        onClose={() => setDataFolder(null)}
+      />
 
       {/* Delete Folder Modal */}
       <Modal

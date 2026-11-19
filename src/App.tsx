@@ -8,7 +8,7 @@ import { BenchmarkScreen } from './components/Benchmark/BenchmarkScreen';
 import { useWorkbenchStore } from './store/workbenchStore';
 import { initialFolders } from './mockData';
 import type { Folder, Chapter, PageMetadata } from './types';
-import { Sparkles, Activity, Sliders, Stethoscope, Download, Layers } from 'lucide-react';
+import { Sparkles, Download, Layers } from 'lucide-react';
 import { pickImageFiles, ingestImageFiles, formatDraftName } from './services/fileIngestion';
 import { deletePageBlob, runIdempotentStorageMigration } from './services/db';
 import { isSystemDiagnosticsEnabled } from './lib/diagnosticTap';
@@ -565,22 +565,22 @@ export function App() {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsChapterSnatchOpen(true)}
-                  className="h-9 px-4 rounded-full bg-white text-black text-xs font-semibold tracking-tight flex items-center justify-center gap-2 hover:bg-zinc-100 active:scale-[0.98] transition-all shadow-sm cursor-pointer select-none"
-                  title="Fetch manga or webtoon chapters"
-                >
-                  <Download className="w-4 h-4 text-black stroke-[2.2]" />
-                  <span>Fetch</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => setIsImageProcessingOpen(true)}
                   className="h-9 px-4 rounded-full bg-white text-black text-xs font-semibold tracking-tight flex items-center justify-center gap-2 hover:bg-zinc-100 active:scale-[0.98] transition-all shadow-sm cursor-pointer select-none"
                   title="Independent Image Merge & Cut Studio"
                 >
                   <Layers className="w-4 h-4 text-black stroke-[2.2]" />
                   <span>Merge & Cut</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsChapterSnatchOpen(true)}
+                  className="h-9 px-4 rounded-full bg-white text-black text-xs font-semibold tracking-tight flex items-center justify-center gap-2 hover:bg-zinc-100 active:scale-[0.98] transition-all shadow-sm cursor-pointer select-none"
+                  title="Fetch manga or webtoon chapters"
+                >
+                  <Download className="w-4 h-4 text-black stroke-[2.2]" />
+                  <span>Fetch</span>
                 </button>
 
                 <button

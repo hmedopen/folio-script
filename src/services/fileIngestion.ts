@@ -36,20 +36,32 @@ export function pickImageFiles(): Promise<File[]> {
     input.multiple = true;
     input.accept = '.png,.jpg,.jpeg,.webp,.avif,image/png,image/jpeg,image/webp,image/avif';
 
-    input.onchange = () => {
-      const files = Array.from(input.files || []);
+    let isResolved = false;
+    const finish = (files: File[]) => {
+      if (isResolved) return;
+      isResolved = true;
       resolve(files);
+      input.remove();
     };
 
-    // Fallback if user cancels the picker dialog
+    input.onchange = () => {
+      const files = Array.from(input.files || []);
+      finish(files);
+    };
+
+    input.addEventListener('cancel', () => {
+      finish([]);
+    });
+
+    // Fallback cancel safety after reasonable idle if window regains focus without files
     window.addEventListener(
       'focus',
       () => {
         setTimeout(() => {
           if (!input.files || input.files.length === 0) {
-            resolve([]);
+            finish([]);
           }
-        }, 500);
+        }, 1500);
       },
       { once: true }
     );

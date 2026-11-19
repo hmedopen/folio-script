@@ -333,16 +333,16 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                         e.stopPropagation();
                         toggleTyperPin(typer.id);
                       }}
-                      className={`w-6 h-6 rounded flex items-center justify-center shrink-0 border transition-colors cursor-pointer ${
+                      className={`w-6 h-6 flex items-center justify-center shrink-0 transition-colors cursor-pointer ${
                         isPinned
-                          ? 'bg-sky-500/18 border-sky-400/35 text-sky-300 hover:bg-sky-500/28'
-                          : 'bg-transparent border-transparent text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.07]'
+                          ? 'text-white hover:text-zinc-300'
+                          : 'text-zinc-500 hover:text-zinc-200'
                       }`}
                     >
                       {isPinned ? (
-                        <Pin className="w-3 h-3 fill-current" aria-hidden="true" />
+                        <Pin className="w-3.5 h-3.5 fill-current text-white" aria-hidden="true" />
                       ) : (
-                        <PinOff className="w-3 h-3" aria-hidden="true" />
+                        <PinOff className="w-3.5 h-3.5" aria-hidden="true" />
                       )}
                     </button>
                   </div>
@@ -432,7 +432,7 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                 type="button"
                 disabled={isBusy || !activePageId || manualPageBubbles.length === 0}
                 onClick={() => activePageId && void extractPage(activePageId)}
-                className={`${ACTION_PILL_BASE} flex-1 bg-[#121317] border-sky-400/20 hover:bg-sky-500/10 hover:border-sky-400/40 text-zinc-200`}
+                className={`${ACTION_PILL_BASE} flex-1 bg-[#181920] border-white/10 hover:bg-white/10 text-zinc-100 font-medium`}
               >
                 <ScanText className="w-3.5 h-3.5 text-sky-400 shrink-0" aria-hidden="true" />
                 <span>Extract Page</span>
@@ -444,7 +444,7 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                 <button
                   type="button"
                   onClick={cancelOcr}
-                  className={`${ACTION_PILL_BASE} flex-1 bg-rose-600 hover:bg-rose-500 border-rose-400/30 text-white`}
+                  className={`${ACTION_PILL_BASE} flex-1 bg-rose-600 hover:bg-rose-500 border-transparent text-white font-semibold shadow-xs`}
                 >
                   <XCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>Cancel OCR</span>
@@ -454,9 +454,9 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                   type="button"
                   disabled={isBusy || pages.length === 0}
                   onClick={() => void extractAll(pages)}
-                  className={`${ACTION_PILL_BASE} flex-1 bg-sky-500/18 hover:bg-sky-500/28 border-sky-400/35 hover:border-sky-400/55 text-sky-100`}
+                  className={`${ACTION_PILL_BASE} flex-1 bg-sky-600 hover:bg-sky-500 border-transparent text-white font-semibold shadow-xs`}
                 >
-                  <ScanText className="w-3.5 h-3.5 text-sky-300 shrink-0" aria-hidden="true" />
+                  <ScanText className="w-3.5 h-3.5 text-white shrink-0" aria-hidden="true" />
                   <span>Extract All</span>
                 </button>
               )}
@@ -500,7 +500,7 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                 onClick={() =>
                   activePageId && void translatePage(projectId, chapterId, pages, activePageId)
                 }
-                className={`${ACTION_PILL_BASE} flex-1 bg-[#121317] border-emerald-400/20 hover:bg-emerald-500/10 hover:border-emerald-400/40 text-zinc-200`}
+                className={`${ACTION_PILL_BASE} flex-1 bg-[#181920] border-white/10 hover:bg-white/10 text-zinc-100 font-medium`}
               >
                 <Languages className="w-3.5 h-3.5 text-emerald-400 shrink-0" aria-hidden="true" />
                 <span>Translate Page</span>
@@ -512,7 +512,7 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                 <button
                   type="button"
                   onClick={cancelTranslation}
-                  className={`${ACTION_PILL_BASE} flex-1 bg-rose-600 hover:bg-rose-500 border-rose-400/30 text-white`}
+                  className={`${ACTION_PILL_BASE} flex-1 bg-rose-600 hover:bg-rose-500 border-transparent text-white font-semibold shadow-xs`}
                 >
                   <XCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>Cancel</span>
@@ -522,9 +522,9 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                   type="button"
                   disabled={isBusy || pages.length === 0}
                   onClick={() => void translateAll(projectId, chapterId, pages, false)}
-                  className={`${ACTION_PILL_BASE} flex-1 bg-emerald-500/18 hover:bg-emerald-500/28 border-emerald-400/35 hover:border-emerald-400/55 text-emerald-100`}
+                  className={`${ACTION_PILL_BASE} flex-1 bg-emerald-600 hover:bg-emerald-500 border-transparent text-white font-semibold shadow-xs`}
                 >
-                  <Languages className="w-3.5 h-3.5 text-emerald-300 shrink-0" aria-hidden="true" />
+                  <Languages className="w-3.5 h-3.5 text-white shrink-0" aria-hidden="true" />
                   <span>Translate All</span>
                 </button>
               )}
@@ -581,9 +581,9 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                     )
                   }
                   title="Clear manual selections on this page only"
-                  className={`${ACTION_PILL_BASE} bg-[#121317] border-rose-400/20 hover:bg-rose-500/10 hover:border-rose-400/40 text-zinc-300 hover:text-rose-100`}
+                  className={`${ACTION_PILL_BASE} bg-[#181920] border-white/10 hover:bg-white/10 text-zinc-100 font-medium`}
                 >
-                  <Eraser className="w-3.5 h-3.5 text-rose-400/85 shrink-0" aria-hidden="true" />
+                  <Eraser className="w-3.5 h-3.5 text-rose-400 shrink-0" aria-hidden="true" />
                   <span>Clear Page</span>
                 </button>
 
@@ -601,7 +601,7 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                         pages.map((p) => p.id)
                       );
                     }}
-                    className={`${ACTION_PILL_BASE} bg-rose-600 hover:bg-rose-500 border-rose-400/40 text-white font-semibold`}
+                    className={`${ACTION_PILL_BASE} bg-rose-600 hover:bg-rose-500 border-transparent text-white font-semibold shadow-xs`}
                   >
                     <span>Confirm Clear</span>
                   </button>
@@ -611,9 +611,9 @@ export const ManualSelectionPanel: React.FC<ManualSelectionPanelProps> = ({
                     disabled={isBusy || pages.length === 0}
                     onClick={() => setConfirmClearKey(currentConfirmKey)}
                     title="Clear manual selections across this chapter (preserves automatic scans)"
-                    className={`${ACTION_PILL_BASE} bg-rose-500/14 hover:bg-rose-500/24 border-rose-400/30 hover:border-rose-400/50 text-rose-200 hover:text-rose-100`}
+                    className={`${ACTION_PILL_BASE} bg-rose-600 hover:bg-rose-500 border-transparent text-white font-semibold shadow-xs`}
                   >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-300 shrink-0" aria-hidden="true" />
+                    <Trash2 className="w-3.5 h-3.5 text-white shrink-0" aria-hidden="true" />
                     <span>Clear All</span>
                   </button>
                 )}

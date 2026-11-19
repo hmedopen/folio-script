@@ -133,6 +133,9 @@ interface CanvasPaneProps {
   imageUrl: string | null;
   isLoading: boolean;
   pageFileName?: string;
+  outgoingImageUrl?: string | null;
+  isCrossfading?: boolean;
+  crossfadeDuration?: number;
   bubbles: BubbleItem[];
   selectedBubbleId: string | null;
   focusTarget?: { bubbleId: string; box_2d: [number, number, number, number]; trigger: number } | null;
@@ -173,6 +176,9 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
   imageUrl,
   isLoading,
   pageFileName,
+  outgoingImageUrl = null,
+  isCrossfading = false,
+  crossfadeDuration = 160,
   bubbles,
   selectedBubbleId,
   focusTarget,
@@ -203,6 +209,35 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
   const [isDragOver, setIsDragOver] = useState(false);
   const typerSettings = useTyperSettings();
   const imgRef = useRef<HTMLImageElement>(null);
+  const outgoingImgRef = useRef<HTMLImageElement>(null);
+
+  // Phase 4: Main Viewer crossfade animations
+  useEffect(() => {
+    if (isCrossfading && outgoingImageUrl && outgoingImgRef.current) {
+      const el = outgoingImgRef.current;
+      if (typeof el.animate === 'function') {
+        el.animate([{ opacity: 1 }, { opacity: 0 }], {
+          duration: crossfadeDuration,
+          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          fill: 'forwards',
+        });
+      }
+    }
+  }, [isCrossfading, outgoingImageUrl, crossfadeDuration]);
+
+  useEffect(() => {
+    if (isCrossfading && outgoingImageUrl && imgRef.current) {
+      const el = imgRef.current;
+      if (typeof el.animate === 'function') {
+        el.animate([{ opacity: 0 }, { opacity: 1 }], {
+          duration: crossfadeDuration,
+          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          fill: 'forwards',
+        });
+      }
+    }
+  }, [isCrossfading, outgoingImageUrl, crossfadeDuration]);
+
   const imgNaturalRef = useRef<{ width: number; height: number }>({ width: 1000, height: 1000 });
   const [imgNaturalSize, setImgNaturalSize] = useState<{ width: number; height: number }>({
     width: 1000,
@@ -396,7 +431,7 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
 
   // Focus and zoom in on target bubble
   useEffect(() => {
-    if (!focusTarget || isLoading || !svgRef.current || !viewportRef.current) return;
+    if (!focusTarget || isLoading || !viewportRef.current) return;
     const { box_2d } = focusTarget;
     const [ymin, xmin, ymax, xmax] = box_2d;
     const boxCenterX = (xmin + xmax) / 2;
@@ -405,45 +440,45 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
     const boxW = Math.max(10, xmax - xmin);
     const boxH = Math.max(10, ymax - ymin);
     const maxDim = Math.max(boxW, boxH);
-    const calculatedZoom = Math.round((400 / maxDim) * 100);
-    const targetZoom = Math.max(150, Math.min(220, calculatedZoom));
+    
+    // Adaptive close zoom on bubble (240% to 450%)
+    const calculatedZoom = Math.round((600 / Math.max(maxDim, 60)) * 100);
+    const targetZoom = Math.max(240, Math.min(450, calculatedZoom));
 
     onZoomChangeRef.current?.(targetZoom);
 
-    const svgRect = svgRef.current.getBoundingClientRect();
-    const currentScale = (zoomLevelRef.current || 100) / 100;
-    const unscaledW = svgRect.width / currentScale;
-    const unscaledH = svgRect.height / currentScale;
+    // Unscaled layout dimensions of image/canvas
+    const baseW = imgRef.current?.clientWidth || svgRef.current?.clientWidth || 400;
+    const baseH = imgRef.current?.clientHeight || svgRef.current?.clientHeight || 600;
 
     const normOffsetX = (boxCenterX - 500) / 1000;
     const normOffsetY = (boxCenterY - 500) / 1000;
 
     const newScale = targetZoom / 100;
     setPan({
-      x: Math.round(-normOffsetX * unscaledW * newScale),
-      y: Math.round(-normOffsetY * unscaledH * newScale),
+      x: Math.round(-normOffsetX * baseW * newScale),
+      y: Math.round(-normOffsetY * baseH * newScale),
     });
   }, [focusTarget, isLoading]);
 
   // Center on bubble without changing zoom level (triggered by clicking dialogue card)
   useEffect(() => {
-    if (!centerTarget || isLoading || !svgRef.current || !viewportRef.current) return;
+    if (!centerTarget || isLoading || !viewportRef.current) return;
     const { box_2d } = centerTarget;
     const [ymin, xmin, ymax, xmax] = box_2d;
     const boxCenterX = (xmin + xmax) / 2;
     const boxCenterY = (ymin + ymax) / 2;
 
-    const svgRect = svgRef.current.getBoundingClientRect();
-    const currentScale = (zoomLevelRef.current || 100) / 100;
-    const unscaledW = svgRect.width / currentScale;
-    const unscaledH = svgRect.height / currentScale;
+    const baseW = imgRef.current?.clientWidth || svgRef.current?.clientWidth || 400;
+    const baseH = imgRef.current?.clientHeight || svgRef.current?.clientHeight || 600;
 
+    const currentScale = (zoomLevelRef.current || 100) / 100;
     const normOffsetX = (boxCenterX - 500) / 1000;
     const normOffsetY = (boxCenterY - 500) / 1000;
 
     setPan({
-      x: Math.round(-normOffsetX * unscaledW * currentScale),
-      y: Math.round(-normOffsetY * unscaledH * currentScale),
+      x: Math.round(-normOffsetX * baseW * currentScale),
+      y: Math.round(-normOffsetY * baseH * currentScale),
     });
   }, [centerTarget, isLoading]);
 
@@ -1214,39 +1249,87 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
             }}
             className="relative inline-flex items-center justify-center rounded-sm overflow-visible select-none"
           >
-            {/* Layer 1: Manga Artwork Image */}
+            {/* Layer 1: Manga Artwork Image with Crossfade Transition */}
             {imageUrl ? (
-              <img
-                ref={imgRef}
-                src={imageUrl}
-                alt={pageFileName || 'Chapter page scan'}
-                onLoad={(e) => {
-                  const img = e.currentTarget;
-                  if (img.naturalWidth > 0 && img.naturalHeight > 0) {
-                    const nextSize = { width: img.naturalWidth, height: img.naturalHeight };
-                    imgNaturalRef.current = nextSize;
-                    setImgNaturalSize(nextSize);
-                  }
-                }}
-                onError={() => {
-                  emitDiagnosticBoundary({
-                    subsystem: 'rendering-ui',
-                    component: 'CanvasPane',
-                    operation: 'renderPageImage',
-                    eventType: 'error',
-                    severity: 'error',
-                    status: 'failed',
-                    payload: { pageFileName },
-                    explanation: `Failed to render page image element on canvas (${pageFileName || 'unknown page'}).`,
-                  });
-                }}
-                style={{
-                  maxWidth: Math.max(120, viewportSize.width - 24),
-                  maxHeight: Math.max(120, viewportSize.height - 24),
-                }}
-                className="w-auto h-auto select-none pointer-events-none block rounded-xs"
-                draggable={false}
-              />
+              <div className="relative inline-flex items-center justify-center">
+                <img
+                  ref={imgRef}
+                  src={imageUrl}
+                  alt={pageFileName || 'Chapter page scan'}
+                  onLoad={(e) => {
+                    const img = e.currentTarget;
+                    if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+                      const nextSize = { width: img.naturalWidth, height: img.naturalHeight };
+                      imgNaturalRef.current = nextSize;
+                      setImgNaturalSize(nextSize);
+                    }
+                  }}
+                  onError={() => {
+                    emitDiagnosticBoundary({
+                      subsystem: 'rendering-ui',
+                      component: 'CanvasPane',
+                      operation: 'renderPageImage',
+                      eventType: 'error',
+                      severity: 'error',
+                      status: 'failed',
+                      payload: { pageFileName },
+                      explanation: `Failed to render page image element on canvas (${pageFileName || 'unknown page'}).`,
+                    });
+                  }}
+                  style={{
+                    maxWidth: Math.max(120, viewportSize.width - 24),
+                    maxHeight: Math.max(120, viewportSize.height - 24),
+                  }}
+                  className="w-auto h-auto select-none pointer-events-none block rounded-xs"
+                  draggable={false}
+                />
+                {outgoingImageUrl && isCrossfading && (
+                  <img
+                    ref={outgoingImgRef}
+                    src={outgoingImageUrl}
+                    alt="Outgoing chapter page scan"
+                    style={{
+                      maxWidth: Math.max(120, viewportSize.width - 24),
+                      maxHeight: Math.max(120, viewportSize.height - 24),
+                    }}
+                    className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none block rounded-xs"
+                    draggable={false}
+                  />
+                )}
+              </div>
+            ) : outgoingImageUrl && isCrossfading ? (
+              <div className="relative inline-flex items-center justify-center">
+                <div className="w-[420px] h-[600px] bg-[#0d0e12] border border-white/[0.08] rounded-xl flex flex-col justify-between p-6 relative overflow-hidden shadow-2xl">
+                  <div className="relative z-10 flex items-center justify-between text-zinc-600 text-[10px] font-mono">
+                    <span>CANONICAL SCAN SURFACE</span>
+                    <span>1000 x 1000 UNITS</span>
+                  </div>
+                  <div className="relative z-10 my-auto text-center flex flex-col items-center gap-2">
+                    <FileImage className="w-8 h-8 text-zinc-500 stroke-[1.5]" />
+                    <span className="text-xs text-zinc-300 font-semibold uppercase tracking-wider font-mono">
+                      CANVAS READY
+                    </span>
+                    <span className="text-[11px] text-zinc-500 max-w-xs">
+                      Drop images here from OS explorer to test interactive translation canvas.
+                    </span>
+                  </div>
+                  <div className="relative z-10 flex items-center justify-between text-zinc-700 text-[10px] font-mono">
+                    <span>STATUS: STANDBY</span>
+                    <span>0 DETECTIONS</span>
+                  </div>
+                </div>
+                <img
+                  ref={outgoingImgRef}
+                  src={outgoingImageUrl}
+                  alt="Outgoing chapter page scan"
+                  style={{
+                    maxWidth: Math.max(120, viewportSize.width - 24),
+                    maxHeight: Math.max(120, viewportSize.height - 24),
+                  }}
+                  className="absolute inset-0 w-full h-full object-contain select-none pointer-events-none block rounded-xs"
+                  draggable={false}
+                />
+              </div>
             ) : (
               <div className="w-[420px] h-[600px] bg-[#0d0e12] border border-white/[0.08] rounded-xl flex flex-col justify-between p-6 relative overflow-hidden shadow-2xl">
                 <div className="relative z-10 flex items-center justify-between text-zinc-600 text-[10px] font-mono">
@@ -1313,8 +1396,8 @@ export const CanvasPane: React.FC<CanvasPaneProps> = ({
                   const hasPoly = Boolean(activePolygon);
                   const isParametricEllipse = !hasPoly && primary.manualSelectionShape === 'bubble';
 
-                  const strokeColor = typerVisual.color;
-                  const baseStrokePx = isSelected ? outlineMetrics.selectedStrokePx : outlineMetrics.strokePx;
+                  const strokeColor = isSelected ? '#38bdf8' : typerVisual.color;
+                  const baseStrokePx = isSelected ? Math.max(outlineMetrics.selectedStrokePx, 2.5) : outlineMetrics.strokePx;
                   const strokeWidth = String(baseStrokePx / zoomComp.strokeDivisor);
                   const strokeOpacity = isSelected ? 1 : outlineMetrics.strokeOpacity;
                   const strokeDasharray = isFlagged

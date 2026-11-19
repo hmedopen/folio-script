@@ -3,9 +3,9 @@
  * Main Studio Container Modal (Fetch Integration & Independent Upload)
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Folder } from '../../../types';
-import type { ProcessingSourceImage, ProcessingSession } from '../core/types';
+import type { ProcessingSourceImage, ProcessingSession, CutOptions, MergeOptions } from '../core/types';
 import { processingManager } from '../engine/processingManager';
 import { UploadStage } from './UploadStage';
 import { ResultsGallery } from './ResultsGallery';
@@ -16,7 +16,6 @@ import {
   Scissors,
   Loader2,
   AlertCircle,
-  Sparkles,
 } from 'lucide-react';
 
 export interface ImageProcessingModalProps {
@@ -92,27 +91,27 @@ export const ImageProcessingModal: React.FC<ImageProcessingModalProps> = ({
     }
   }, [isOpen, context, initialSources, initialOperation, title]);
 
-  const handleStartMerge = async () => {
+  const handleStartMerge = async (options?: MergeOptions) => {
     if (sourceImages.length === 0) return;
     setErrorMessage(null);
     processingManager.initSession(context, title, sourceImages);
     setViewState('results');
 
     try {
-      await processingManager.runMerge();
+      await processingManager.runMerge(options);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Merge failed.');
     }
   };
 
-  const handleStartCut = async () => {
+  const handleStartCut = async (options?: CutOptions) => {
     if (sourceImages.length === 0) return;
     setErrorMessage(null);
     processingManager.initSession(context, title, sourceImages);
     setViewState('results');
 
     try {
-      await processingManager.runCut();
+      await processingManager.runCut(options);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Cut failed.');
     }
@@ -181,29 +180,19 @@ export const ImageProcessingModal: React.FC<ImageProcessingModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-100 select-none">
-      <div className="w-full max-w-6xl h-[90vh] bg-[#0c0d12] border border-white/[0.12] rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100 font-sans animate-in zoom-in-95 duration-100 relative">
-        {/* Modal Top Header */}
+      <div className="w-full max-w-6xl h-[88vh] max-h-[820px] bg-[#0c0d12] border border-white/[0.12] rounded-2xl shadow-2xl flex flex-col overflow-hidden text-zinc-100 font-sans animate-in zoom-in-95 duration-100 relative">
+        {/* Modal Top Header (icon directly on background, larger title, clean without red-lined badges/text) */}
         <div className="h-14 px-6 border-b border-white/[0.08] bg-[#08080b] flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
-            <div className="p-1.5 rounded-lg bg-zinc-800 border border-white/[0.08] text-white">
-              {initialOperation === 'cut' ? (
-                <Scissors className="w-4 h-4 text-zinc-300" />
-              ) : (
-                <Layers className="w-4 h-4 text-zinc-300" />
-              )}
-            </div>
+            {initialOperation === 'cut' ? (
+              <Scissors className="w-5 h-5 text-white stroke-[2.2]" />
+            ) : (
+              <Layers className="w-5 h-5 text-white stroke-[2.2]" />
+            )}
             <div>
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-semibold tracking-wider uppercase text-zinc-200">
-                  {title}
-                </span>
-                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-zinc-800 text-zinc-400 border border-white/[0.06]">
-                  {context === 'fetch' ? 'Fetch Session' : 'Independent Upload'}
-                </span>
-              </div>
-              <p className="text-[11px] text-zinc-500">
-                Reliable translator-focused image merging and cutting with boundary reconciliation.
-              </p>
+              <span className="font-mono text-sm font-bold tracking-wider uppercase text-zinc-100">
+                {title}
+              </span>
             </div>
           </div>
 
