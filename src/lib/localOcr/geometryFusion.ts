@@ -1,3 +1,13 @@
+/**
+ * Folio Script — Multi-Signal Cross-Tile Reconciliation & Seam Stitching Engine
+ * Reconciles comic detections across overlapping 2D tiles:
+ * - Eliminates duplicates using multi-signal matching (IoU + IoS).
+ * - Chains multi-tile oversized balloons and narration regions across boundaries.
+ * - Enforces anti-transitive graph validation (hard same-tile disjointness, 2D tile connectivity, void filter).
+ * - Stitches multi-seam polygon contours while preserving concavities, speech tails, and burst spikes.
+ * - Flags un-reconstructed or ambiguous boundary detections without fabricating false geometry.
+ */
+
 import type { ScanIssueFlag } from '../../types/scanning.ts';
 import type {
   AssociatedTextCandidate,
@@ -7,7 +17,9 @@ import type {
   TileTransformRecord,
 } from '../../types/localOcr.ts';
 import { calculateBoxIoU, computeBoxArea } from '../coordinateTransforms.ts';
-import { originalPixelsToNormalized1000 } from './coordinateMapping.ts';
+import { originalPixelsToDerivedNormalized } from './coordinatePipeline.ts';
+
+export type Point2D = [number, number];
 
 function computeIntersectionArea(
   a: [number, number, number, number],
@@ -55,7 +67,11 @@ function touchesInternalTileBoundary(
   );
 }
 
-function areCrossTileBoundarySplitPieces(
+/**
+ * Checks whether two detections are physically meeting across a shared boundary cut
+ * between two geometrically adjacent tiles (vertically or horizontally adjacent).
+ */
+export function areCrossTileBoundarySplitPieces(
   a: RawComicDetection,
   b: RawComicDetection,
   tileMap: Map<string, TileTransformRecord>
@@ -68,40 +84,187 @@ function areCrossTileBoundarySplitPieces(
   const [ay1, ax1, ay2, ax2] = a.pixelBox;
   const [by1, bx1, by2, bx2] = b.pixelBox;
 
-  // Check if A & B meet/overlap along a vertical boundary (horizontally adjacent tiles)
+  // 1. Horizontally adjacent tiles (vertical seam between cols)
   if (tA.row === tB.row && Math.abs(tA.col - tB.col) === 1) {
     const left = tA.col < tB.col ? a : b;
     const right = tA.col < tB.col ? b : a;
     const yOverlap = Math.max(0, Math.min(ay2, by2) - Math.max(ay1, by1));
     const minH = Math.max(1, Math.min(ay2 - ay1, by2 - by1));
     const yOverlapRatio = yOverlap / minH;
+
     const touchesSharedEdge =
       (left.touchesTileInnerRight || right.touchesTileInnerLeft) &&
-      right.pixelBox[1] <= left.pixelBox[3] + 16;
-    if (yOverlapRatio >= 0.55 && touchesSharedEdge) return true;
+      right.pixelBox[1] <= left.pixelBox[3] + 24;
+
+    if (yOverlapRatio >= 0.5 && touchesSharedEdge) return true;
   }
 
-  // Check if A & B meet/overlap along a horizontal boundary (vertically adjacent webtoon tiles)
+  // 2. Vertically adjacent tiles (horizontal seam between rows)
   if (tA.col === tB.col && Math.abs(tA.row - tB.row) === 1) {
     const top = tA.row < tB.row ? a : b;
     const bottom = tA.row < tB.row ? b : a;
     const xOverlap = Math.max(0, Math.min(ax2, bx2) - Math.max(ax1, bx1));
     const minW = Math.max(1, Math.min(ax2 - ax1, bx2 - bx1));
     const xOverlapRatio = xOverlap / minW;
+
     const touchesSharedEdge =
       (top.touchesTileInnerBottom || bottom.touchesTileInnerTop) &&
-      bottom.pixelBox[0] <= top.pixelBox[2] + 16;
-    if (xOverlapRatio >= 0.55 && touchesSharedEdge) return true;
+      bottom.pixelBox[0] <= top.pixelBox[2] + 24;
+
+    if (xOverlapRatio >= 0.5 && touchesSharedEdge) return true;
   }
 
   return false;
 }
 
 /**
- * Class-aware duplicate suppression and cross-tile boundary reconstruction.
- * - Never collapses two separate balloons detected in the same tile.
- * - Reconstructs bubbles split across overlapping tiles.
- * - Flags detections clipped at an un-reconstructed internal tile boundary.
+ * Validates candidate cluster graph to prevent false transitive merging:
+ * 1. Same-Tile Invariant: A cluster can never contain multiple detections from the same tile.
+ * 2. 2D Spatial Connectivity: Member tiles must form a connected subgraph.
+ * 3. Density / Void Ratio: Sum of member areas divided by union box area must be >= 0.15.
+ */
+export function validateClusterGraph(
+  members: RawComicDetection[],
+  tileMap: Map<string, TileTransformRecord>
+): boolean {
+  if (members.length <= 1) return true;
+
+  // 1. Hard Invariant: Same-Tile Disjointness
+  const tileIds = members.map((m) => m.tileId);
+  if (new Set(tileIds).size !== tileIds.length) {
+    return false; // Multiple detections from the same tile cannot be the same physical balloon
+  }
+
+  // 2. 2D Spatial Tile Graph Connectivity
+  const memberTileSet = new Set(tileIds);
+  const visited = new Set<string>();
+  const queue = [tileIds[0]];
+  visited.add(tileIds[0]);
+
+  while (queue.length > 0) {
+    const currId = queue.shift()!;
+    const tCurr = tileMap.get(currId);
+    if (!tCurr) continue;
+
+    for (const otherId of memberTileSet) {
+      if (visited.has(otherId)) continue;
+      const tOther = tileMap.get(otherId);
+      if (!tOther) continue;
+
+      // Check if tCurr and tOther share a horizontal or vertical overlap in original pixels
+      const xOverlap = Math.max(
+        0,
+        Math.min(tCurr.originX + tCurr.cropWidth, tOther.originX + tOther.cropWidth) -
+          Math.max(tCurr.originX, tOther.originX)
+      );
+      const yOverlap = Math.max(
+        0,
+        Math.min(tCurr.originY + tCurr.cropHeight, tOther.originY + tOther.cropHeight) -
+          Math.max(tCurr.originY, tOther.originY)
+      );
+
+      if (xOverlap > 0 && yOverlap > 0) {
+        visited.add(otherId);
+        queue.push(otherId);
+      }
+    }
+  }
+
+  if (visited.size !== memberTileSet.size) {
+    return false; // Disjoint tiles cannot be merged
+  }
+
+  // 3. Cluster Density Check (avoids chaining distant balloons across empty voids)
+  let minX = Infinity,
+    minY = Infinity,
+    maxX = -Infinity,
+    maxY = -Infinity;
+  let sumArea = 0;
+
+  for (const m of members) {
+    minX = Math.min(minX, m.pixelBox[1]);
+    minY = Math.min(minY, m.pixelBox[0]);
+    maxX = Math.max(maxX, m.pixelBox[3]);
+    maxY = Math.max(maxY, m.pixelBox[2]);
+    sumArea += (m.pixelBox[3] - m.pixelBox[1]) * (m.pixelBox[2] - m.pixelBox[0]);
+  }
+
+  const unionArea = (maxX - minX) * (maxY - minY);
+  if (unionArea <= 0) return false;
+
+  // Real connected balloons and narration strips have area density >= 0.15
+  if (sumArea / unionArea < 0.15) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Generalized multi-seam polygon welding across a horizontal boundary line.
+ * Handles multiple entry/exit ports (e.g. burst balloon spikes or speech tails).
+ */
+export function stitchSeamPolygons(
+  polyA: Point2D[], // Upper tile contour (y <= seamY)
+  polyB: Point2D[], // Lower tile contour (y >= seamY)
+  seamY: number
+): { stitched: Point2D[] | null; isAmbiguous: boolean } {
+  if (!polyA || polyA.length < 3 || !polyB || polyB.length < 3) {
+    return { stitched: null, isAmbiguous: true };
+  }
+
+  // Find all X intersection points with seam line y = seamY
+  const findIntersects = (poly: Point2D[]): number[] => {
+    const xs: number[] = [];
+    const n = poly.length;
+    for (let i = 0; i < n; i++) {
+      const p1 = poly[i];
+      const p2 = poly[(i + 1) % n];
+      if ((p1[1] <= seamY && p2[1] > seamY) || (p2[1] <= seamY && p1[1] > seamY)) {
+        const dy = p2[1] - p1[1];
+        if (Math.abs(dy) > 1e-4) {
+          const t = (seamY - p1[1]) / dy;
+          xs.push(p1[0] + t * (p2[0] - p1[0]));
+        }
+      }
+    }
+    return xs.sort((a, b) => a - b);
+  };
+
+  const xA = findIntersects(polyA);
+  const xB = findIntersects(polyB);
+
+  // If both have even non-zero intersection points
+  if (xA.length >= 2 && xB.length >= 2 && xA.length % 2 === 0 && xB.length % 2 === 0) {
+    // Check if intervals overlap
+    const portOverlap =
+      Math.max(0, Math.min(xA[xA.length - 1], xB[xB.length - 1]) - Math.max(xA[0], xB[0])) /
+      Math.max(1, Math.max(xA[xA.length - 1], xB[xB.length - 1]) - Math.min(xA[0], xB[0]));
+
+    if (portOverlap >= 0.5) {
+      // Weld exterior points: points of A with y <= seamY + points of B with y >= seamY
+      const ptsA = polyA.filter((p) => p[1] <= seamY + 2);
+      const ptsB = polyB.filter((p) => p[1] >= seamY - 2);
+
+      const welded = [...ptsA, ...ptsB];
+      if (welded.length >= 4) {
+        // Close loop
+        if (
+          welded[0][0] !== welded[welded.length - 1][0] ||
+          welded[0][1] !== welded[welded.length - 1][1]
+        ) {
+          welded.push([welded[0][0], welded[0][1]]);
+        }
+        return { stitched: welded, isAmbiguous: false };
+      }
+    }
+  }
+
+  return { stitched: null, isAmbiguous: true };
+}
+
+/**
+ * Class-aware duplicate suppression and multi-tile boundary reconstruction.
  */
 export function fuseTiledComicDetections(
   rawDetections: RawComicDetection[],
@@ -122,6 +285,8 @@ export function fuseTiledComicDetections(
       members: RawComicDetection[];
       pixelBox: [number, number, number, number];
       reconstructedCrossBoundary: boolean;
+      pixelPolygon?: Point2D[];
+      isAmbiguousPolygon?: boolean;
     }
 
     const clusters: Cluster[] = [];
@@ -131,17 +296,26 @@ export function fuseTiledComicDetections(
       let matchedViaBoundarySplit = false;
 
       for (const cluster of clusters) {
-        // Never collapse two adjacent balloons detected inside the SAME tile
+        // Enforce hard invariant: never match another detection from the SAME tile
         const sharesTile = cluster.members.some((m) => m.tileId === det.tileId);
         if (sharesTile) continue;
 
         const detTile = tileMap.get(det.tileId);
         const detTouchesInner = touchesInternalTileBoundary(det, detTile);
 
+        // Candidate check: can det be added without violating cluster invariants?
+        const candidateMembers = [...cluster.members, det];
+        if (!validateClusterGraph(candidateMembers, tileMap)) {
+          continue;
+        }
+
         for (const member of cluster.members) {
           const iou = calculateBoxIoU(det.pixelBox, member.pixelBox);
           const ioMin = computeIoMin(det.pixelBox, member.pixelBox);
-          const memberTouchesInner = touchesInternalTileBoundary(member, tileMap.get(member.tileId));
+          const memberTouchesInner = touchesInternalTileBoundary(
+            member,
+            tileMap.get(member.tileId)
+          );
 
           if (areCrossTileBoundarySplitPieces(det, member, tileMap)) {
             matchedCluster = cluster;
@@ -149,13 +323,12 @@ export function fuseTiledComicDetections(
             break;
           }
 
-          if (iou >= 0.45) {
+          if (iou >= 0.48) {
             matchedCluster = cluster;
             break;
           }
 
-          // One piece clipped at tile edge and mostly contained inside full piece in neighbor tile
-          if ((detTouchesInner || memberTouchesInner) && ioMin >= 0.7) {
+          if ((detTouchesInner || memberTouchesInner) && ioMin >= 0.75) {
             matchedCluster = cluster;
             break;
           }
@@ -169,19 +342,40 @@ export function fuseTiledComicDetections(
           members: [det],
           pixelBox: [...det.pixelBox],
           reconstructedCrossBoundary: false,
+          pixelPolygon: det.pixelPolygon ? [...det.pixelPolygon] : undefined,
         });
       } else {
         matchedCluster.members.push(det);
+
         if (matchedViaBoundarySplit) {
           matchedCluster.reconstructedCrossBoundary = true;
           matchedCluster.pixelBox = unionPixelBoxes(matchedCluster.pixelBox, det.pixelBox);
+
+          // Attempt polygon seam welding if both members have contours
+          if (matchedCluster.pixelPolygon && det.pixelPolygon) {
+            const seamY = (det.pixelBox[0] + matchedCluster.pixelBox[2]) / 2;
+            const stitchRes = stitchSeamPolygons(
+              matchedCluster.pixelPolygon,
+              det.pixelPolygon,
+              seamY
+            );
+            if (stitchRes.stitched) {
+              matchedCluster.pixelPolygon = stitchRes.stitched;
+            } else {
+              matchedCluster.isAmbiguousPolygon = true;
+            }
+          }
         } else {
-          // Prefer member that does not touch an internal tile boundary, else highest confidence
+          // Complete duplicate in overlap band: prefer member furthest from tile edges, else higher confidence
           const bestNonClipped = matchedCluster.members
             .filter((m) => !touchesInternalTileBoundary(m, tileMap.get(m.tileId)))
             .sort((a, b) => b.rawScore - a.rawScore)[0];
+
           if (bestNonClipped) {
             matchedCluster.pixelBox = [...bestNonClipped.pixelBox];
+            if (bestNonClipped.pixelPolygon) {
+              matchedCluster.pixelPolygon = [...bestNonClipped.pixelPolygon];
+            }
           } else {
             matchedCluster.pixelBox = unionPixelBoxes(matchedCluster.pixelBox, det.pixelBox);
           }
@@ -194,23 +388,28 @@ export function fuseTiledComicDetections(
       const topMember = [...cluster.members].sort((a, b) => b.rawScore - a.rawScore)[0];
       const sourceTileIds = Array.from(new Set(cluster.members.map((m) => m.tileId)));
 
-      // Check if ALL members are clipped at an internal tile boundary and were NOT reconstructed
       const allClippedAtInner = cluster.members.every((m) =>
         touchesInternalTileBoundary(m, tileMap.get(m.tileId))
       );
-      const boundaryUncertain = allClippedAtInner && !cluster.reconstructedCrossBoundary;
+      const boundaryUncertain =
+        (allClippedAtInner && !cluster.reconstructedCrossBoundary) ||
+        Boolean(cluster.isAmbiguousPolygon);
+
       const flags: ScanIssueFlag[] = boundaryUncertain ? ['REGION_BOUNDARY_UNCERTAIN'] : [];
+
+      // Derived normalized coordinates using exact floating-point pipeline
+      const normalizedBox = originalPixelsToDerivedNormalized(
+        cluster.pixelBox,
+        sourceWidth,
+        sourceHeight
+      );
 
       fusedAll.push({
         id: `${cls}-${i + 1}`,
         classLabel: cls,
         pixelBox: cluster.pixelBox,
-        normalizedBox: originalPixelsToNormalized1000(
-          cluster.pixelBox,
-          sourceWidth,
-          sourceHeight,
-          1
-        ),
+        normalizedBox,
+        pixelPolygon: cluster.pixelPolygon,
         rawScore: topMember.rawScore,
         sourceTileIds,
         boundaryUncertain,
@@ -223,16 +422,68 @@ export function fuseTiledComicDetections(
 }
 
 /**
- * Resolves cross-label duplicates between `text_bubble` and `text_free` when RT-DETR-v2
- * multi-label queries emit both classes for the exact same text region (high IoU >= 0.65).
- * Physical `bubble` regions are never suppressed against text regions.
+ * Resolves text candidate associations to enclosing bubbles.
  */
+export function associateTextCandidatesToBubbles(
+  fused: FusedComicRegion[]
+): {
+  bubbles: FusedComicRegion[];
+  textCandidates: AssociatedTextCandidate[];
+} {
+  const bubbles = fused.filter((f) => f.classLabel === 'bubble');
+  const textRegions = deduplicateOverlappingTextClasses(
+    bubbles,
+    fused.filter((f) => f.classLabel === 'text_bubble' || f.classLabel === 'text_free')
+  );
+
+  const textCandidates: AssociatedTextCandidate[] = textRegions.map((txt) => {
+    let bestBubble: FusedComicRegion | null = null;
+    let bestScore = 0;
+    const candidates: string[] = [];
+
+    for (const b of bubbles) {
+      const ioMin = computeIoMin(txt.pixelBox, b.pixelBox);
+      const iou = calculateBoxIoU(txt.pixelBox, b.pixelBox);
+      const score = Math.max(ioMin, iou);
+
+      if (score >= 0.35) {
+        candidates.push(b.id);
+        if (score > bestScore) {
+          bestScore = score;
+          bestBubble = b;
+        }
+      }
+    }
+
+    const isAmbiguous = candidates.length > 1 && bestScore < 0.85;
+    const flags: ScanIssueFlag[] = [...txt.flags];
+    if (isAmbiguous) {
+      flags.push('BUBBLE_ASSOCIATION_AMBIGUOUS');
+    }
+
+    return {
+      candidateId: txt.id,
+      kind: txt.classLabel as 'text_bubble' | 'text_free',
+      pixelBox: txt.pixelBox,
+      normalizedBox: txt.normalizedBox,
+      rawScore: txt.rawScore,
+      sourceTileIds: txt.sourceTileIds,
+      boundaryUncertain: txt.boundaryUncertain,
+      flags,
+      associatedBubbleId: bestBubble ? bestBubble.id : null,
+      associationConfidence: Math.round(bestScore * 100) / 100,
+      candidateBubbleIds: candidates.length > 0 ? candidates : undefined,
+    };
+  });
+
+  return { bubbles, textCandidates };
+}
+
 function deduplicateOverlappingTextClasses(
   bubbles: FusedComicRegion[],
   textRegions: FusedComicRegion[]
 ): FusedComicRegion[] {
   const sorted = [...textRegions].sort((a, b) => {
-    // Slightly prefer text_bubble when inside an actual bubble and scores are close
     const aInBubble = bubbles.some((bu) => computeIoMin(a.pixelBox, bu.pixelBox) >= 0.6);
     const bInBubble = bubbles.some((bu) => computeIoMin(b.pixelBox, bu.pixelBox) >= 0.6);
     const aBonus = a.classLabel === 'text_bubble' && aInBubble ? 0.08 : 0;
@@ -241,114 +492,12 @@ function deduplicateOverlappingTextClasses(
   });
 
   const kept: FusedComicRegion[] = [];
-  for (const candidate of sorted) {
-    const duplicateOf = kept.find(
-      (k) => calculateBoxIoU(k.pixelBox, candidate.pixelBox) >= 0.65
-    );
-    if (!duplicateOf) {
-      kept.push(candidate);
+  for (const item of sorted) {
+    const dup = kept.find((k) => calculateBoxIoU(item.pixelBox, k.pixelBox) >= 0.65);
+    if (!dup) {
+      kept.push(item);
     }
   }
+
   return kept;
-}
-
-/**
- * Associates detected text_bubble regions with physical bubble boundaries while keeping
- * text_free regions unassociated (bubbleId = null) and flagging ambiguous associations.
- */
-export function associateTextCandidatesToBubbles(
-  fusedRegions: FusedComicRegion[]
-): {
-  bubbles: FusedComicRegion[];
-  textCandidates: AssociatedTextCandidate[];
-} {
-  const bubbles = fusedRegions.filter((r) => r.classLabel === 'bubble');
-  const rawTextRegions = fusedRegions.filter(
-    (r) => r.classLabel === 'text_bubble' || r.classLabel === 'text_free'
-  );
-  const textRegions = deduplicateOverlappingTextClasses(bubbles, rawTextRegions);
-
-  const textCandidates: AssociatedTextCandidate[] = textRegions.map((tr) => {
-    const flags: ScanIssueFlag[] = [...tr.flags];
-
-    if (tr.classLabel === 'text_free') {
-      return {
-        candidateId: tr.id,
-        kind: 'text_free',
-        pixelBox: tr.pixelBox,
-        normalizedBox: tr.normalizedBox,
-        rawScore: tr.rawScore,
-        sourceTileIds: tr.sourceTileIds,
-        boundaryUncertain: tr.boundaryUncertain,
-        flags,
-        associatedBubbleId: null,
-        associationConfidence: 1,
-      };
-    }
-
-    const textArea = Math.max(1, computeBoxArea(tr.pixelBox));
-    const tCy = (tr.pixelBox[0] + tr.pixelBox[2]) / 2;
-    const tCx = (tr.pixelBox[1] + tr.pixelBox[3]) / 2;
-
-    const scored = bubbles
-      .map((b) => {
-        const interArea = computeIntersectionArea(tr.pixelBox, b.pixelBox);
-        const containment = interArea / textArea;
-        const iou = calculateBoxIoU(tr.pixelBox, b.pixelBox);
-        const centroidInside =
-          tCy >= b.pixelBox[0] &&
-          tCy <= b.pixelBox[2] &&
-          tCx >= b.pixelBox[1] &&
-          tCx <= b.pixelBox[3];
-        const score = containment * 0.7 + iou * 0.2 + (centroidInside ? 0.1 : 0);
-        return { bubble: b, containment, iou, centroidInside, score };
-      })
-      .filter((s) => s.containment > 0.15 || s.centroidInside)
-      .sort((a, b) => b.score - a.score);
-
-    if (scored.length === 0) {
-      if (!flags.includes('BUBBLE_ASSOCIATION_AMBIGUOUS')) {
-        flags.push('BUBBLE_ASSOCIATION_AMBIGUOUS');
-      }
-      return {
-        candidateId: tr.id,
-        kind: 'text_bubble',
-        pixelBox: tr.pixelBox,
-        normalizedBox: tr.normalizedBox,
-        rawScore: tr.rawScore,
-        sourceTileIds: tr.sourceTileIds,
-        boundaryUncertain: tr.boundaryUncertain,
-        flags,
-        associatedBubbleId: null,
-        associationConfidence: 0,
-      };
-    }
-
-    const best = scored[0];
-    const second = scored[1];
-    const isAmbiguous =
-      Boolean(second) &&
-      second.containment >= 0.35 &&
-      Math.abs(best.score - second.score) < 0.15;
-
-    if (isAmbiguous && !flags.includes('BUBBLE_ASSOCIATION_AMBIGUOUS')) {
-      flags.push('BUBBLE_ASSOCIATION_AMBIGUOUS');
-    }
-
-    return {
-      candidateId: tr.id,
-      kind: 'text_bubble',
-      pixelBox: tr.pixelBox,
-      normalizedBox: tr.normalizedBox,
-      rawScore: tr.rawScore,
-      sourceTileIds: tr.sourceTileIds,
-      boundaryUncertain: tr.boundaryUncertain,
-      flags,
-      associatedBubbleId: best.bubble.id,
-      associationConfidence: Math.min(1, Math.max(0, best.containment)),
-      candidateBubbleIds: scored.map((s) => s.bubble.id),
-    };
-  });
-
-  return { bubbles, textCandidates };
 }

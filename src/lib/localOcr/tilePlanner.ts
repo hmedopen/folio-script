@@ -1,26 +1,36 @@
 import type { TileTransformRecord } from '../../types/localOcr.ts';
+import {
+  findGuttersInZone,
+  type GutterCandidate,
+  type RgbaImageBufferLike,
+} from './gutterDetector.ts';
 
 export const DETECTOR_TARGET_SIZE = 640;
 export const DEFAULT_TILE_OVERLAP_RATIO = 0.2;
+export const LONG_PAGE_OVERLAP_RATIO = 0.35; // 35% overlap = 224px on 640px tiles for long manhwa/webtoon pages
 
 export interface TilePlanOptions {
   tileSize?: number;
   overlapRatio?: number;
+  imageBuffer?: RgbaImageBufferLike;
+  enableGutterSnapping?: boolean;
 }
 
 export interface AxisSlice {
   origin: number;
   cropSpan: number;
+  isSnappedToGutter?: boolean;
 }
 
 /**
- * Computes deterministic 1D tile slices covering [0, dimension) with zero uncovered pixels.
- * Avoids creating redundant tiles when dimension <= tileSize.
+ * Computes deterministic, monotonic 1D tile slices covering [0, dimension) with zero gaps.
+ * Enforces strictly guaranteed minimum overlap between adjacent tiles and eliminates duplicate final tiles.
  */
-export function computeAxisSlices(
+export function computeAdaptiveAxisSlices(
   dimension: number,
   tileSize = DETECTOR_TARGET_SIZE,
-  overlapRatio = DEFAULT_TILE_OVERLAP_RATIO
+  minOverlapRatio = DEFAULT_TILE_OVERLAP_RATIO,
+  gutters: GutterCandidate[] = []
 ): AxisSlice[] {
   if (!Number.isFinite(dimension) || dimension <= 0) {
     throw new Error(`Invalid page dimension: ${dimension}`);
@@ -28,31 +38,82 @@ export function computeAxisSlices(
   if (!Number.isFinite(tileSize) || tileSize <= 0) {
     throw new Error(`Invalid tileSize: ${tileSize}`);
   }
-  const safeOverlap = Math.max(0, Math.min(0.49, overlapRatio));
+
+  // Safe overlap ratio clamped to [0.20, 0.45]
+  const safeOverlap = Math.max(0.2, Math.min(0.45, minOverlapRatio));
+  const maxStride = Math.max(1, Math.floor(tileSize * (1 - safeOverlap))); // e.g. 416px
 
   if (dimension <= tileSize) {
-    return [{ origin: 0, cropSpan: dimension }];
+    return [{ origin: 0, cropSpan: dimension, isSnappedToGutter: false }];
   }
 
-  const maxStride = Math.max(1, Math.floor(tileSize * (1 - safeOverlap)));
-  const spanRemaining = dimension - tileSize;
-  const count = Math.ceil(spanRemaining / maxStride) + 1;
-
   const slices: AxisSlice[] = [];
-  for (let i = 0; i < count; i++) {
-    const origin =
-      i === count - 1
-        ? spanRemaining
-        : Math.round((spanRemaining * i) / (count - 1));
-    slices.push({ origin, cropSpan: tileSize });
+  let currentOrigin = 0;
+
+  while (currentOrigin + tileSize < dimension) {
+    slices.push({
+      origin: currentOrigin,
+      cropSpan: tileSize,
+      isSnappedToGutter: false,
+    });
+
+    const idealNextOrigin = currentOrigin + maxStride;
+    if (idealNextOrigin + tileSize >= dimension) {
+      // Final tile reached
+      break;
+    }
+
+    // Gutter candidate search window:
+    // To maintain at least safeOverlap with current tile: nextOrigin <= currentOrigin + maxStride
+    const candidateMax = currentOrigin + maxStride;
+    const candidateMin = currentOrigin + Math.floor(maxStride * 0.7);
+
+    let chosenOrigin = idealNextOrigin;
+    let snapped = false;
+
+    if (gutters.length > 0) {
+      // Find gutters whose center falls within [candidateMin, candidateMax]
+      const validGutters = gutters.filter(
+        (g) => g.center >= candidateMin && g.center <= candidateMax
+      );
+
+      if (validGutters.length > 0) {
+        // Pick gutter with highest quality score
+        validGutters.sort((a, b) => b.score - a.score);
+        const best = validGutters[0];
+        chosenOrigin = best.center;
+        snapped = true;
+      }
+    }
+
+    // Strictly enforce monotonic progress and minimum overlap
+    if (chosenOrigin > currentOrigin && chosenOrigin <= candidateMax) {
+      currentOrigin = chosenOrigin;
+      if (snapped) {
+        slices[slices.length - 1].isSnappedToGutter = true;
+      }
+    } else {
+      currentOrigin = idealNextOrigin;
+    }
+  }
+
+  // Final tile anchored to dimension - tileSize (only if not already at edge)
+  const finalOrigin = dimension - tileSize;
+  const lastSlice = slices[slices.length - 1];
+  if (!lastSlice || lastSlice.origin < finalOrigin) {
+    slices.push({
+      origin: finalOrigin,
+      cropSpan: tileSize,
+      isSnappedToGutter: false,
+    });
   }
 
   return slices;
 }
 
 /**
- * Plans adaptive overlapping 640x640 tiles across a page of arbitrary dimensions.
- * Handles portrait manga, wide spreads, and tall webtoon strips without full-page shrinking.
+ * Plans adaptive overlapping 640x640 tiles across a page of arbitrary dimensions,
+ * supporting 10k-14k+ px webtoons, conditional gutter snapping, and complete coverage.
  */
 export function planAdaptivePageTiles(
   sourceWidth: number,
@@ -60,10 +121,28 @@ export function planAdaptivePageTiles(
   options: TilePlanOptions = {}
 ): TileTransformRecord[] {
   const tileSize = options.tileSize ?? DETECTOR_TARGET_SIZE;
-  const overlapRatio = options.overlapRatio ?? DEFAULT_TILE_OVERLAP_RATIO;
+  const overlapRatio =
+    options.overlapRatio ??
+    (sourceHeight >= 2000 || sourceWidth >= 2000
+      ? LONG_PAGE_OVERLAP_RATIO
+      : DEFAULT_TILE_OVERLAP_RATIO);
 
-  const xSlices = computeAxisSlices(sourceWidth, tileSize, overlapRatio);
-  const ySlices = computeAxisSlices(sourceHeight, tileSize, overlapRatio);
+  // Horizontal slices across width
+  const xSlices = computeAdaptiveAxisSlices(sourceWidth, tileSize, overlapRatio);
+
+  // Vertical slices across height (with optional gutter detection)
+  let yGutters: GutterCandidate[] = [];
+  if (options.enableGutterSnapping && options.imageBuffer) {
+    yGutters = findGuttersInZone(
+      options.imageBuffer,
+      0,
+      sourceHeight,
+      Math.floor(tileSize * (1 - overlapRatio)),
+      { minGutterHeight: 16, maxVarianceThreshold: 4.5 }
+    );
+  }
+
+  const ySlices = computeAdaptiveAxisSlices(sourceHeight, tileSize, overlapRatio, yGutters);
 
   const tiles: TileTransformRecord[] = [];
 
@@ -87,7 +166,6 @@ export function planAdaptivePageTiles(
         cropHeight,
         inputWidth: tileSize,
         inputHeight: tileSize,
-        // Native 1:1 pixel resolution inside each tile; smaller edges are zero/border-padded
         scaleX: 1,
         scaleY: 1,
         padRight,
@@ -113,7 +191,6 @@ export function verifyTileCoverage(
 ): boolean {
   if (tiles.length === 0 || sourceWidth <= 0 || sourceHeight <= 0) return false;
 
-  // Check coverage at all boundary and interval points along both axes
   const xPoints = new Set<number>([0, sourceWidth - 1]);
   const yPoints = new Set<number>([0, sourceHeight - 1]);
   for (const t of tiles) {

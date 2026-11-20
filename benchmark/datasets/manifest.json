@@ -1,0 +1,594 @@
+{
+  "version": "1.0.0",
+  "createdAt": "2026-11-19T21:40:00.000Z",
+  "description": "Folio Script Phase 2 Detector Benchmark Corpus covering Japanese Manga, Korean Manhwa, Chinese Manhua, and Western Comics with difficult balloon variants.",
+  "datasetSplitRatio": {
+    "tuning": 0.4,
+    "test": 0.6
+  },
+  "categories": {
+    "manga": 4,
+    "manhwa": 6,
+    "manhua": 3,
+    "western": 3
+  },
+  "images": [
+    {
+      "id": "manga_bw_standard_01",
+      "title": "Manga Chapter 1 Page 14 - Standard B&W Action",
+      "category": "manga",
+      "imagePath": "benchmark/datasets/images/manga_bw_standard_01.png",
+      "width": 1200,
+      "height": 1800,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "manga_01_b1",
+          "classLabel": "balloon",
+          "box_2d": [750, 120, 960, 420],
+          "polygon": [
+            [855, 120], [920, 150], [960, 240], [950, 340], [900, 410],
+            [855, 420], [790, 390], [750, 300], [760, 190], [810, 135]
+          ],
+          "difficultyTags": ["standard"]
+        },
+        {
+          "id": "manga_01_b2",
+          "classLabel": "balloon",
+          "box_2d": [180, 250, 420, 580],
+          "polygon": [
+            [300, 250], [380, 280], [420, 380], [400, 500], [340, 570],
+            [300, 580], [220, 540], [180, 440], [190, 330], [240, 270]
+          ],
+          "difficultyTags": ["standard", "large"]
+        },
+        {
+          "id": "manga_01_b3",
+          "classLabel": "balloon",
+          "box_2d": [620, 850, 780, 1050],
+          "polygon": [
+            [700, 850], [750, 880], [780, 930], [760, 990], [730, 1040],
+            [680, 1050], [640, 1020], [620, 960], [630, 900], [660, 860]
+          ],
+          "difficultyTags": ["standard"]
+        }
+      ]
+    },
+    {
+      "id": "manga_bw_burst_02",
+      "title": "Manga Chapter 4 Page 8 - Jagged Shouting & Screen Tone",
+      "category": "manga",
+      "imagePath": "benchmark/datasets/images/manga_bw_burst_02.png",
+      "width": 1200,
+      "height": 1800,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manga_02_b1",
+          "classLabel": "balloon",
+          "box_2d": [300, 150, 680, 540],
+          "polygon": [
+            [490, 150], [530, 200], [600, 180], [610, 250], [680, 280],
+            [640, 350], [670, 420], [610, 440], [620, 520], [550, 490],
+            [490, 540], [430, 490], [360, 520], [370, 440], [310, 420],
+            [340, 350], [300, 280], [370, 250], [380, 180], [450, 200]
+          ],
+          "difficultyTags": ["irregular_shape", "gradient"]
+        },
+        {
+          "id": "manga_02_b2",
+          "classLabel": "balloon",
+          "box_2d": [120, 800, 320, 1040],
+          "polygon": [
+            [220, 800], [280, 830], [320, 900], [300, 980], [250, 1030],
+            [220, 1040], [160, 1010], [120, 940], [130, 860], [170, 815]
+          ],
+          "difficultyTags": ["standard", "small"]
+        }
+      ]
+    },
+    {
+      "id": "manga_dense_dialogue_03",
+      "title": "Manga Chapter 12 Page 3 - Dense Clustered Dialogue",
+      "category": "manga",
+      "imagePath": "benchmark/datasets/images/manga_dense_dialogue_03.png",
+      "width": 1200,
+      "height": 1800,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manga_03_b1",
+          "classLabel": "balloon",
+          "box_2d": [800, 100, 950, 320],
+          "polygon": [
+            [875, 100], [930, 130], [950, 200], [930, 270], [890, 315],
+            [850, 320], [815, 280], [800, 210], [810, 150], [840, 110]
+          ],
+          "difficultyTags": ["dense_dialogue", "overlapping"]
+        },
+        {
+          "id": "manga_03_b2",
+          "classLabel": "balloon",
+          "box_2d": [720, 240, 860, 460],
+          "polygon": [
+            [790, 240], [840, 270], [860, 340], [840, 410], [805, 455],
+            [765, 460], [730, 420], [720, 350], [730, 290], [755, 250]
+          ],
+          "difficultyTags": ["dense_dialogue", "overlapping"]
+        },
+        {
+          "id": "manga_03_b3",
+          "classLabel": "balloon",
+          "box_2d": [200, 600, 380, 880],
+          "polygon": [
+            [290, 600], [350, 640], [380, 720], [360, 810], [315, 870],
+            [270, 880], [225, 840], [200, 750], [210, 670], [245, 615]
+          ],
+          "difficultyTags": ["dense_dialogue"]
+        },
+        {
+          "id": "manga_03_b4",
+          "classLabel": "balloon",
+          "box_2d": [420, 680, 580, 920],
+          "polygon": [
+            [500, 680], [550, 715], [580, 790], [560, 860], [520, 910],
+            [480, 920], [440, 880], [420, 810], [430, 740], [460, 695]
+          ],
+          "difficultyTags": ["dense_dialogue"]
+        }
+      ]
+    },
+    {
+      "id": "manga_thought_cloud_04",
+      "title": "Manga Chapter 7 Page 22 - Thought Bubbles with Bubbled Tail",
+      "category": "manga",
+      "imagePath": "benchmark/datasets/images/manga_thought_cloud_04.png",
+      "width": 1200,
+      "height": 1800,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "manga_04_b1",
+          "classLabel": "balloon",
+          "box_2d": [250, 180, 550, 480],
+          "polygon": [
+            [400, 180], [470, 200], [520, 250], [550, 310], [540, 390],
+            [490, 450], [430, 480], [350, 475], [290, 430], [250, 360],
+            [260, 280], [310, 210], [360, 185]
+          ],
+          "difficultyTags": ["thought_bubble", "irregular_shape"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_color_vertical_scroll_01",
+      "title": "Manhwa Episode 1 - 12000px Vertical Strip with Pastel Balloons",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_color_vertical_scroll_01.png",
+      "width": 1000,
+      "height": 12000,
+      "isLongPage": true,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhwa_01_b1",
+          "classLabel": "balloon",
+          "box_2d": [180, 450, 440, 750],
+          "polygon": [
+            [310, 450], [390, 480], [440, 570], [430, 670], [380, 740],
+            [300, 750], [220, 710], [180, 620], [190, 520], [240, 465]
+          ],
+          "difficultyTags": ["standard", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_01_b2",
+          "classLabel": "balloon",
+          "box_2d": [550, 1200, 820, 1520],
+          "polygon": [
+            [685, 1200], [765, 1230], [820, 1330], [805, 1440], [755, 1510],
+            [675, 1520], [595, 1480], [550, 1380], [565, 1280], [615, 1220]
+          ],
+          "difficultyTags": ["gradient", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_01_b3",
+          "classLabel": "balloon",
+          "box_2d": [150, 3400, 480, 3750],
+          "polygon": [
+            [315, 3400], [410, 3435], [480, 3530], [465, 3660], [405, 3740],
+            [310, 3750], [215, 3705], [150, 3600], [165, 3485], [230, 3420]
+          ],
+          "difficultyTags": ["borderless", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_01_b4",
+          "classLabel": "balloon",
+          "box_2d": [480, 5800, 820, 6180],
+          "polygon": [
+            [650, 5800], [750, 5840], [820, 5950], [800, 6080], [740, 6170],
+            [640, 6180], [540, 6130], [480, 6020], [495, 5900], [560, 5825]
+          ],
+          "difficultyTags": ["transparent", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_01_b5",
+          "classLabel": "balloon",
+          "box_2d": [200, 8900, 520, 9250],
+          "polygon": [
+            [360, 8900], [455, 8935], [520, 9040], [505, 9165], [445, 9240],
+            [350, 9250], [255, 9205], [200, 9100], [215, 8985], [280, 8920]
+          ],
+          "difficultyTags": ["gradient", "borderless", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_01_b6",
+          "classLabel": "balloon",
+          "box_2d": [420, 11100, 760, 11480],
+          "polygon": [
+            [590, 11100], [690, 11140], [760, 11250], [745, 11380], [680, 11470],
+            [580, 11480], [485, 11430], [420, 11320], [435, 11200], [505, 11125]
+          ],
+          "difficultyTags": ["standard", "vertical_scroll"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_transparent_fx_02",
+      "title": "Manhwa Episode 5 - Translucent Whispering Bubbles over Digital Art",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_transparent_fx_02.png",
+      "width": 1080,
+      "height": 2400,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhwa_02_b1",
+          "classLabel": "balloon",
+          "box_2d": [120, 300, 480, 680],
+          "polygon": [
+            [300, 300], [410, 340], [480, 460], [460, 590], [390, 670],
+            [280, 680], [180, 630], [120, 510], [140, 385], [210, 320]
+          ],
+          "difficultyTags": ["transparent", "gradient"]
+        },
+        {
+          "id": "manhwa_02_b2",
+          "classLabel": "balloon",
+          "box_2d": [580, 850, 960, 1260],
+          "polygon": [
+            [770, 850], [885, 895], [960, 1025], [935, 1170], [860, 1250],
+            [750, 1260], [640, 1205], [580, 1080], [605, 945], [680, 870]
+          ],
+          "difficultyTags": ["transparent", "borderless"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_borderless_pastel_03",
+      "title": "Manhwa Episode 9 - Borderless Pastel Dialogue in Romance Webtoon",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_borderless_pastel_03.png",
+      "width": 1080,
+      "height": 2200,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhwa_03_b1",
+          "classLabel": "balloon",
+          "box_2d": [220, 180, 560, 520],
+          "polygon": [
+            [390, 180], [490, 215], [560, 320], [540, 435], [470, 510],
+            [370, 520], [275, 475], [220, 370], [240, 255], [310, 195]
+          ],
+          "difficultyTags": ["borderless", "gradient"]
+        },
+        {
+          "id": "manhwa_03_b2",
+          "classLabel": "balloon",
+          "box_2d": [480, 650, 840, 1000],
+          "polygon": [
+            [660, 650], [765, 685], [840, 795], [820, 915], [745, 990],
+            [645, 1000], [545, 955], [480, 845], [505, 730], [580, 665]
+          ],
+          "difficultyTags": ["borderless"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_double_bubble_04",
+      "title": "Manhwa Episode 14 - Interconnected Double Bubble Sharing One Tail",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_double_bubble_04.png",
+      "width": 1080,
+      "height": 2200,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "manhwa_04_b1",
+          "classLabel": "balloon",
+          "box_2d": [200, 300, 540, 820],
+          "polygon": [
+            [370, 300], [470, 330], [540, 430], [520, 550], [510, 640],
+            [480, 730], [420, 810], [340, 820], [260, 780], [220, 690],
+            [230, 580], [200, 480], [210, 380], [280, 315]
+          ],
+          "difficultyTags": ["irregular_shape", "overlapping"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_gradient_sky_05",
+      "title": "Manhwa Episode 18 - Dialogue Over Dusk Gradient Sunset",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_gradient_sky_05.png",
+      "width": 1080,
+      "height": 2000,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "manhwa_05_b1",
+          "classLabel": "balloon",
+          "box_2d": [150, 200, 450, 500],
+          "polygon": [
+            [300, 200], [390, 230], [450, 325], [435, 430], [375, 495],
+            [285, 500], [205, 460], [150, 365], [165, 270], [225, 215]
+          ],
+          "difficultyTags": ["gradient"]
+        },
+        {
+          "id": "manhwa_05_b2",
+          "classLabel": "balloon",
+          "box_2d": [550, 700, 880, 1040],
+          "polygon": [
+            [715, 700], [815, 735], [880, 840], [860, 960], [795, 1030],
+            [695, 1040], [605, 995], [550, 890], [565, 780], [635, 715]
+          ],
+          "difficultyTags": ["gradient", "transparent"]
+        }
+      ]
+    },
+    {
+      "id": "manhwa_tall_scroll_06",
+      "title": "Manhwa Episode 25 - 14000px Ultra-Tall Action Scroll",
+      "category": "manhwa",
+      "imagePath": "benchmark/datasets/images/manhwa_tall_scroll_06.png",
+      "width": 1000,
+      "height": 14000,
+      "isLongPage": true,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhwa_06_b1",
+          "classLabel": "balloon",
+          "box_2d": [200, 800, 500, 1140],
+          "polygon": [
+            [350, 800], [440, 835], [500, 940], [485, 1060], [425, 1130],
+            [335, 1140], [245, 1095], [200, 990], [215, 880], [275, 815]
+          ],
+          "difficultyTags": ["vertical_scroll"]
+        },
+        {
+          "id": "manhwa_06_b2",
+          "classLabel": "balloon",
+          "box_2d": [500, 4200, 820, 4580],
+          "polygon": [
+            [660, 4200], [755, 4240], [820, 4350], [800, 4480], [735, 4570],
+            [640, 4580], [550, 4530], [500, 4420], [515, 4300], [580, 4225]
+          ],
+          "difficultyTags": ["transparent", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_06_b3",
+          "classLabel": "balloon",
+          "box_2d": [180, 9600, 520, 10000],
+          "polygon": [
+            [350, 9600], [450, 9640], [520, 9760], [500, 9900], [435, 9990],
+            [335, 10000], [235, 9950], [180, 9820], [195, 9700], [265, 9625]
+          ],
+          "difficultyTags": ["borderless", "vertical_scroll"]
+        },
+        {
+          "id": "manhwa_06_b4",
+          "classLabel": "balloon",
+          "box_2d": [480, 12800, 800, 13180],
+          "polygon": [
+            [640, 12800], [735, 12840], [800, 12950], [780, 13080], [715, 13170],
+            [620, 13180], [530, 13130], [480, 13020], [495, 12900], [560, 12825]
+          ],
+          "difficultyTags": ["standard", "vertical_scroll"]
+        }
+      ]
+    },
+    {
+      "id": "manhua_color_webtoon_01",
+      "title": "Manhua Chapter 18 Page 4 - Cultivation Floating Cloud Dialogue",
+      "category": "manhua",
+      "imagePath": "benchmark/datasets/images/manhua_color_webtoon_01.png",
+      "width": 1100,
+      "height": 2000,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhua_01_b1",
+          "classLabel": "balloon",
+          "box_2d": [150, 150, 480, 480],
+          "polygon": [
+            [315, 150], [415, 180], [480, 280], [465, 395], [405, 470],
+            [305, 480], [210, 440], [150, 335], [165, 230], [230, 165]
+          ],
+          "difficultyTags": ["gradient", "irregular_shape"]
+        },
+        {
+          "id": "manhua_01_b2",
+          "classLabel": "balloon",
+          "box_2d": [550, 600, 900, 960],
+          "polygon": [
+            [725, 600], [830, 635], [900, 745], [880, 870], [810, 950],
+            [700, 960], [600, 910], [550, 800], [570, 680], [640, 615]
+          ],
+          "difficultyTags": ["transparent"]
+        }
+      ]
+    },
+    {
+      "id": "manhua_martial_arts_02",
+      "title": "Manhua Chapter 32 Page 11 - Rectangular Box & Whispering Cloud",
+      "category": "manhua",
+      "imagePath": "benchmark/datasets/images/manhua_martial_arts_02.png",
+      "width": 1100,
+      "height": 2000,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "manhua_02_b1",
+          "classLabel": "balloon",
+          "box_2d": [100, 100, 400, 300],
+          "polygon": [
+            [100, 100], [400, 100], [400, 300], [100, 300]
+          ],
+          "difficultyTags": ["borderless"]
+        },
+        {
+          "id": "manhua_02_b2",
+          "classLabel": "balloon",
+          "box_2d": [450, 450, 800, 820],
+          "polygon": [
+            [625, 450], [730, 485], [800, 600], [780, 730], [710, 810],
+            [600, 820], [500, 770], [450, 660], [470, 540], [540, 470]
+          ],
+          "difficultyTags": ["standard"]
+        }
+      ]
+    },
+    {
+      "id": "manhua_dense_urban_03",
+      "title": "Manhua Chapter 5 Page 7 - Modern Urban Clustered Dialogue",
+      "category": "manhua",
+      "imagePath": "benchmark/datasets/images/manhua_dense_urban_03.png",
+      "width": 1100,
+      "height": 2200,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "manhua_03_b1",
+          "classLabel": "balloon",
+          "box_2d": [180, 120, 420, 360],
+          "polygon": [
+            [300, 120], [375, 145], [420, 220], [410, 300], [365, 350],
+            [290, 360], [225, 330], [180, 260], [195, 180], [240, 135]
+          ],
+          "difficultyTags": ["dense_dialogue"]
+        },
+        {
+          "id": "manhua_03_b2",
+          "classLabel": "balloon",
+          "box_2d": [480, 220, 740, 480],
+          "polygon": [
+            [610, 220], [690, 245], [740, 330], [725, 420], [670, 470],
+            [590, 480], [520, 445], [480, 370], [495, 290], [545, 235]
+          ],
+          "difficultyTags": ["dense_dialogue", "overlapping"]
+        }
+      ]
+    },
+    {
+      "id": "western_peppercarrot_e03p01",
+      "title": "Pepper & Carrot E03P01 - European Style Hand-Drawn Balloons",
+      "category": "western",
+      "imagePath": "benchmark/datasets/images/peppercarrot_e03p01.png",
+      "width": 1200,
+      "height": 1660,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "western_01_b1",
+          "classLabel": "balloon",
+          "box_2d": [616, 107, 720, 290],
+          "polygon": [
+            [668, 107], [705, 135], [720, 190], [710, 250], [680, 285],
+            [640, 290], [620, 260], [616, 200], [622, 140], [645, 115]
+          ],
+          "difficultyTags": ["standard"]
+        },
+        {
+          "id": "western_01_b2",
+          "classLabel": "balloon",
+          "box_2d": [622, 447, 680, 610],
+          "polygon": [
+            [651, 447], [675, 470], [680, 525], [672, 580], [655, 605],
+            [635, 610], [624, 585], [622, 530], [625, 480], [638, 455]
+          ],
+          "difficultyTags": ["standard", "small"]
+        },
+        {
+          "id": "western_01_b3",
+          "classLabel": "balloon",
+          "box_2d": [707, 849, 740, 950],
+          "polygon": [
+            [723, 849], [737, 865], [740, 895], [735, 935], [725, 948],
+            [715, 950], [708, 935], [707, 900], [710, 870], [716, 855]
+          ],
+          "difficultyTags": ["standard", "small"]
+        }
+      ]
+    },
+    {
+      "id": "western_comic_action_02",
+      "title": "Western Superhero Comic - Sharp Burst Balloons with Dramatic Tails",
+      "category": "western",
+      "imagePath": "benchmark/datasets/images/western_comic_action_02.png",
+      "width": 1280,
+      "height": 1920,
+      "isLongPage": false,
+      "split": "test",
+      "annotations": [
+        {
+          "id": "western_02_b1",
+          "classLabel": "balloon",
+          "box_2d": [250, 180, 620, 550],
+          "polygon": [
+            [435, 180], [480, 230], [540, 200], [560, 270], [620, 310],
+            [580, 380], [610, 450], [540, 470], [520, 550], [450, 510],
+            [390, 550], [340, 480], [270, 500], [290, 420], [250, 350],
+            [300, 290], [280, 220], [350, 240], [380, 185]
+          ],
+          "difficultyTags": ["irregular_shape", "gradient"]
+        }
+      ]
+    },
+    {
+      "id": "western_comic_whisper_03",
+      "title": "Western Graphic Novel - Dashed Border Whispering Balloon",
+      "category": "western",
+      "imagePath": "benchmark/datasets/images/western_comic_whisper_03.png",
+      "width": 1280,
+      "height": 1920,
+      "isLongPage": false,
+      "split": "tuning",
+      "annotations": [
+        {
+          "id": "western_03_b1",
+          "classLabel": "balloon",
+          "box_2d": [320, 350, 580, 620],
+          "polygon": [
+            [450, 350], [530, 380], [580, 460], [565, 550], [510, 610],
+            [425, 620], [355, 580], [320, 500], [335, 415], [390, 365]
+          ],
+          "difficultyTags": ["borderless", "transparent"]
+        }
+      ]
+    }
+  ]
+}

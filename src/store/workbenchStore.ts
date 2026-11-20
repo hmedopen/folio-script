@@ -13,7 +13,25 @@ import type {
 import { loadTyperSettings, resolveCanonicalTyper, resolveTyperVisual } from '../types/typers';
 import { computeGeometrySignature } from '../features/manual-selection/selection/geometry';
 import type { SelectionMode, NormalizedBox2D, NormalizedPolygon } from '../features/manual-selection/types/selection';
-import { getPageBubbles, savePageBubbles, getProjectLore, updateReviewFindingStatus } from '../services/db';
+import {
+  getPageBubbles,
+  savePageBubbles,
+  getProjectLore,
+  updateReviewFindingStatus,
+  getPageDomainState,
+  savePageDomainState,
+} from '../services/db';
+import type { PageDomainState } from '../types/domain/index';
+import {
+  domainStateToBubbleViews,
+  applyBubblePatchToDomainState,
+  deleteBubbleFromDomainState,
+  reorderDomainSequence,
+  addManualBubbleToDomainState,
+  splitBubbleInDomainState,
+  reconcileLegacyChangesIntoDomainState,
+} from '../lib/domain/bubbleItemView';
+import { convertLegacyDataToDomainState } from '../lib/domain/v9Migration';
 import { getChapterIntelligence } from '../services/intelligence';
 import { projectMemory } from '../services/projectMemory';
 import type { KnowledgeCandidate, KnowledgeConflictSet } from '../types/memory';
@@ -36,6 +54,7 @@ interface WorkbenchState {
   viewportMode: ViewportMode;
   selectedBubbleId: string | null;
   bubblesByPage: Record<string, BubbleItem[]>;
+  pageDomainStates: Record<string, PageDomainState>;
   projectLore: ProjectLoreLedger | null;
   chapterIntelligence: ChapterIntelligence | null;
   memoryCandidates: KnowledgeCandidate[];
@@ -140,6 +159,8 @@ interface WorkbenchState {
   redoBubbleAction: (pageId: string) => void;
   bubbleUndoStack: Record<string, BubbleItem[][]>;
   bubbleRedoStack: Record<string, BubbleItem[][]>;
+  domainUndoStack: Record<string, PageDomainState[]>;
+  domainRedoStack: Record<string, PageDomainState[]>;
   acceptFlag: (pageId: string, bubbleId: string, flagId: string) => void;
   dismissFlag: (pageId: string, bubbleId: string, flagId: string) => void;
   revertSourceText: (pageId: string, bubbleId: string) => void;
@@ -183,6 +204,39 @@ interface WorkbenchState {
   resolveMemoryConflict: (conflictId: string, decision: string, value: any) => Promise<void>;
 }
 
+function pushToUndoHistory(
+  state: WorkbenchState,
+  pageId: string,
+  existingBubbles: BubbleItem[],
+  existingDomain?: PageDomainState
+) {
+  const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
+  const pageDomainUndo = (state.domainUndoStack[pageId] || []).slice(-39);
+  const domainToSave =
+    existingDomain ||
+    state.pageDomainStates[pageId] ||
+    convertLegacyDataToDomainState(pageId, existingBubbles).pageDomainState;
+
+  return {
+    bubbleUndoStack: {
+      ...state.bubbleUndoStack,
+      [pageId]: [...pageUndo, existingBubbles],
+    },
+    domainUndoStack: {
+      ...state.domainUndoStack,
+      [pageId]: [...pageDomainUndo, domainToSave],
+    },
+    bubbleRedoStack: {
+      ...state.bubbleRedoStack,
+      [pageId]: [],
+    },
+    domainRedoStack: {
+      ...state.domainRedoStack,
+      [pageId]: [],
+    },
+  };
+}
+
 export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   currentView: 'hub',
   activeFolderId: null,
@@ -191,8 +245,11 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   viewportMode: 'manga-flip',
   selectedBubbleId: null,
   bubblesByPage: {},
+  pageDomainStates: {},
   bubbleUndoStack: {},
   bubbleRedoStack: {},
+  domainUndoStack: {},
+  domainRedoStack: {},
   projectLore: null,
   chapterIntelligence: null,
   memoryCandidates: [],
@@ -311,13 +368,74 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
   loadPageBubbles: async (pageId: string) => {
     try {
+      // 1. Canonical PageDomainState is authoritative once it exists
+      const domainState = await getPageDomainState(pageId);
+      if (domainState) {
+        const storedBubbles = await getPageBubbles(pageId);
+        if (storedBubbles && storedBubbles.length > 0) {
+          // Explicit reconciliation path: genuine user changes in legacy are ingested without loss
+          const { reconciledState, hasChanges } = reconcileLegacyChangesIntoDomainState(
+            domainState,
+            storedBubbles
+          );
+          if (hasChanges) {
+            await savePageDomainState(reconciledState).catch((err) =>
+              console.error('[WorkbenchStore] Failed to save reconciled legacy changes to IDB', err)
+            );
+            const views = domainStateToBubbleViews(reconciledState);
+            set((state) => ({
+              pageDomainStates: {
+                ...state.pageDomainStates,
+                [pageId]: reconciledState,
+              },
+              bubblesByPage: {
+                ...state.bubblesByPage,
+                [pageId]: views,
+              },
+            }));
+            return;
+          }
+        }
+
+        // Canonical domain state is authoritative: legacy timestamps never downgrade or replace it
+        const bubbleViews = domainStateToBubbleViews(domainState);
+        set((state) => ({
+          pageDomainStates: {
+            ...state.pageDomainStates,
+            [pageId]: domainState,
+          },
+          bubblesByPage: {
+            ...state.bubblesByPage,
+            [pageId]: bubbleViews,
+          },
+        }));
+        return;
+      }
+
+      // 2. Fall back to legacy getPageBubbles when no canonical domain state exists yet
       const storedBubbles = await getPageBubbles(pageId);
       const bubblesToSet: BubbleItem[] =
         storedBubbles && storedBubbles.length > 0
           ? storedBubbles.map((b, idx) => ({ ...b, index: idx + 1 }))
           : [];
 
+      // Synthesize canonical PageDomainState so underlying state is canonical
+      const { pageDomainState } = convertLegacyDataToDomainState(
+        pageId,
+        bubblesToSet,
+        null,
+        get().activeChapterId || undefined
+      );
+
+      await savePageDomainState(pageDomainState).catch((err) =>
+        console.error('[WorkbenchStore] Failed to persist initial synthesized domain state to IDB', err)
+      );
+
       set((state) => ({
+        pageDomainStates: {
+          ...state.pageDomainStates,
+          [pageId]: pageDomainState,
+        },
         bubblesByPage: {
           ...state.bubblesByPage,
           [pageId]: bubblesToSet,
@@ -335,13 +453,26 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   },
 
   setPageBubblesDirect: (pageId: string, bubbles: BubbleItem[], persist = true) => {
+    const { pageDomainState } = convertLegacyDataToDomainState(
+      pageId,
+      bubbles,
+      null,
+      get().activeChapterId || undefined
+    );
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: bubbles,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: pageDomainState,
+      },
     }));
     if (persist) {
+      savePageDomainState(pageDomainState).catch((err) =>
+        console.error('[WorkbenchStore] Failed to persist domain state to IDB', err)
+      );
       savePageBubbles(pageId, bubbles).catch((err) =>
         console.error('[WorkbenchStore] Failed to persist page bubbles to IDB', err)
       );
@@ -381,23 +512,32 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     };
 
     const updated = [...existing, newBubble];
-    const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const nextDomain = addManualBubbleToDomainState(currentDomain, newBubble);
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      ...(nextDomain
+        ? {
+            pageDomainStates: {
+              ...s.pageDomainStates,
+              [pageId]: nextDomain,
+            },
+          }
+        : {}),
       selectedBubbleId: newBubble.id,
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
-      },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to save manual bubble domain state to IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to save manual bubble to IDB', err)
@@ -450,23 +590,32 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     };
 
     const updated = [...existing, newBubble];
-    const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const nextDomain = addManualBubbleToDomainState(currentDomain, newBubble);
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      ...(nextDomain
+        ? {
+            pageDomainStates: {
+              ...s.pageDomainStates,
+              [pageId]: nextDomain,
+            },
+          }
+        : {}),
       selectedBubbleId: newBubble.id,
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
-      },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to save manual bubble domain state to IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to save manual selection record to IDB', err)
@@ -485,7 +634,6 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     const prevSig = computeGeometrySignature(target.box_2d, target.manualPolygon);
     if (newSig === prevSig) return;
 
-    const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
     const updated = existing.map((b) => {
       if (b.id !== bubbleId) return b;
       const geometryChangedAfterExtract =
@@ -502,20 +650,29 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       };
     });
 
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const nextDomain = applyBubblePatchToDomainState(currentDomain, bubbleId, {
+      box_2d: next.box_2d,
+      manualPolygon: next.polygon,
+      isManuallyEdited: true,
+    });
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: nextDomain,
       },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
+
+    savePageDomainState(nextDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to persist updated selection geometry domain state to IDB', err)
+    );
 
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to persist updated selection geometry to IDB', err)
@@ -541,10 +698,21 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       );
       const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
 
+      const { pageDomainState: syncedDomain } = convertLegacyDataToDomainState(
+        pageId,
+        surviving,
+        null,
+        state.activeChapterId || undefined
+      );
+
       set((s) => ({
         bubblesByPage: {
           ...s.bubblesByPage,
           [pageId]: surviving,
+        },
+        pageDomainStates: {
+          ...s.pageDomainStates,
+          [pageId]: syncedDomain,
         },
         selectedBubbleId: selectedRemoved ? null : s.selectedBubbleId,
         bubbleUndoStack: {
@@ -557,6 +725,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         },
       }));
 
+      savePageDomainState(syncedDomain).catch(() => {});
       await savePageBubbles(pageId, surviving);
       return manualCount;
     }
@@ -564,6 +733,7 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
     // Chapter scope: only delete records with provenance === 'manual_selection' per page
     let totalCleared = 0;
     const nextBubblesByPage: Record<string, BubbleItem[]> = { ...state.bubblesByPage };
+    const nextDomainStates: Record<string, PageDomainState> = { ...state.pageDomainStates };
     const nextUndoStack: Record<string, BubbleItem[][]> = { ...state.bubbleUndoStack };
     const nextRedoStack: Record<string, BubbleItem[][]> = { ...state.bubbleRedoStack };
     let clearSelected = false;
@@ -584,15 +754,26 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
         clearSelected = true;
       }
 
+      const { pageDomainState: syncedDomain } = convertLegacyDataToDomainState(
+        pid,
+        surviving,
+        null,
+        state.activeChapterId || undefined
+      );
+
       nextUndoStack[pid] = [...(nextUndoStack[pid] || []).slice(-39), existing];
       nextRedoStack[pid] = [];
       nextBubblesByPage[pid] = surviving;
+      nextDomainStates[pid] = syncedDomain;
+
+      savePageDomainState(syncedDomain).catch(() => {});
       await savePageBubbles(pid, surviving);
     }
 
     if (totalCleared > 0) {
       set((s) => ({
         bubblesByPage: nextBubblesByPage,
+        pageDomainStates: nextDomainStates,
         bubbleUndoStack: nextUndoStack,
         bubbleRedoStack: nextRedoStack,
         selectedBubbleId: clearSelected ? null : s.selectedBubbleId,
@@ -651,27 +832,37 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       return { ...b, ...updatedPatch, translationHistory: history };
     });
 
-    set((s) => {
-      const pageUndo = (s.bubbleUndoStack[pageId] || []).slice(-39);
-      return {
-        bubblesByPage: {
-          ...s.bubblesByPage,
-          [pageId]: updated,
-        },
-        ...(pushTypeUndo
-          ? {
-              bubbleUndoStack: {
-                ...s.bubbleUndoStack,
-                [pageId]: [...pageUndo, existing],
-              },
-              bubbleRedoStack: {
-                ...s.bubbleRedoStack,
-                [pageId]: [],
-              },
-            }
-          : {}),
-      };
-    });
+    const currentDomain = state.pageDomainStates[pageId];
+    const nextDomain = currentDomain
+      ? applyBubblePatchToDomainState(currentDomain, bubbleId, updatedPatch)
+      : undefined;
+
+    const historyUpdate =
+      pushTypeUndo || patch.sourceText !== undefined || patch.translatedText !== undefined || patch.box_2d !== undefined
+        ? pushToUndoHistory(state, pageId, existing, currentDomain)
+        : null;
+
+    set((s) => ({
+      bubblesByPage: {
+        ...s.bubblesByPage,
+        [pageId]: updated,
+      },
+      ...(nextDomain
+        ? {
+            pageDomainStates: {
+              ...s.pageDomainStates,
+              [pageId]: nextDomain,
+            },
+          }
+        : {}),
+      ...(historyUpdate || {}),
+    }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to update bubble in domain state IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to update bubble in IDB', err)
@@ -685,23 +876,33 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
     const filtered = existing.filter((b) => b.id !== bubbleId);
     const reindexed = filtered.map((b, idx) => ({ ...b, index: idx + 1 }));
-    const pageUndo = (state.bubbleUndoStack[pageId] || []).slice(-39);
+
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const nextDomain = deleteBubbleFromDomainState(currentDomain, bubbleId);
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: reindexed,
       },
+      ...(nextDomain
+        ? {
+            pageDomainStates: {
+              ...s.pageDomainStates,
+              [pageId]: nextDomain,
+            },
+          }
+        : {}),
       selectedBubbleId: s.selectedBubbleId === bubbleId ? null : s.selectedBubbleId,
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
-      },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to delete bubble from domain state IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, reindexed).catch((err) =>
       console.error('[WorkbenchStore] Failed to delete bubble in IDB', err)
@@ -727,12 +928,31 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
     const reindexed = items.map((b, idx) => ({ ...b, index: idx + 1 }));
 
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const nextDomain = reorderDomainSequence(currentDomain, reindexed.map((b) => b.id));
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: reindexed,
       },
+      ...(nextDomain
+        ? {
+            pageDomainStates: {
+              ...s.pageDomainStates,
+              [pageId]: nextDomain,
+            },
+          }
+        : {}),
+      ...historyUpdate,
     }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to save reordered domain state to IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, reindexed).catch((err) =>
       console.error('[WorkbenchStore] Failed to reorder bubbles in IDB', err)
@@ -838,23 +1058,34 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       ...existing.slice(targetIdx + 1),
     ].map((b, idx) => ({ ...b, index: idx + 1 }));
 
-    const pageUndo = state.bubbleUndoStack[pageId] || [];
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    let nextDomain: PageDomainState | undefined;
+    try {
+      const res = splitBubbleInDomainState(currentDomain, bubbleId, splitIndex);
+      nextDomain = res.domainState;
+    } catch {
+      // Bubble may not be in domain state
+    }
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updatedList,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: nextDomain || currentDomain,
+      },
       selectedBubbleId: newBubble.id,
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
-      },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
+
+    if (nextDomain) {
+      savePageDomainState(nextDomain).catch((err) =>
+        console.error('[WorkbenchStore] Failed to save split bubble to domain state IDB', err)
+      );
+    }
 
     savePageBubbles(pageId, updatedList).catch((err) =>
       console.error('[WorkbenchStore] Failed to save split bubble to IDB', err)
@@ -925,22 +1156,30 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       updatedList[destIdx] = dest;
     }
 
-    const pageUndo = state.bubbleUndoStack[pageId] || [];
+    const currentDomain = state.pageDomainStates[pageId] || convertLegacyDataToDomainState(pageId, existing).pageDomainState;
+    const historyUpdate = pushToUndoHistory(state, pageId, existing, currentDomain);
+    const { pageDomainState: syncedDomain } = convertLegacyDataToDomainState(
+      pageId,
+      updatedList,
+      null,
+      state.activeChapterId || undefined
+    );
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updatedList,
       },
-      bubbleUndoStack: {
-        ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, existing],
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
       },
-      bubbleRedoStack: {
-        ...s.bubbleRedoStack,
-        [pageId]: [],
-      },
+      ...historyUpdate,
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to save transferred text domain state to IDB', err)
+    );
     savePageBubbles(pageId, updatedList).catch((err) =>
       console.error('[WorkbenchStore] Failed to save transferred text to IDB', err)
     );
@@ -949,29 +1188,64 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   undoBubbleAction: (pageId: string) => {
     const state = get();
     const pageUndo = state.bubbleUndoStack[pageId] || [];
-    if (pageUndo.length === 0) return;
+    const pageDomainUndo = state.domainUndoStack[pageId] || [];
+    if (pageUndo.length === 0 && pageDomainUndo.length === 0) return;
 
-    const previous = pageUndo[pageUndo.length - 1];
-    const newUndo = pageUndo.slice(0, -1);
-    const current = state.bubblesByPage[pageId] || [];
+    const currentBubbles = state.bubblesByPage[pageId] || [];
+    const currentDomain = state.pageDomainStates[pageId];
     const pageRedo = state.bubbleRedoStack[pageId] || [];
+    const pageDomainRedo = state.domainRedoStack[pageId] || [];
+
+    let restoredDomain: PageDomainState;
+    let restoredBubbles: BubbleItem[];
+
+    if (pageDomainUndo.length > 0) {
+      restoredDomain = pageDomainUndo[pageDomainUndo.length - 1];
+      restoredBubbles = domainStateToBubbleViews(restoredDomain);
+    } else {
+      restoredBubbles = pageUndo[pageUndo.length - 1] || [];
+      restoredDomain = convertLegacyDataToDomainState(
+        pageId,
+        restoredBubbles,
+        null,
+        state.activeChapterId || undefined
+      ).pageDomainState;
+    }
+
+    const newUndo = pageUndo.length > 0 ? pageUndo.slice(0, -1) : [];
+    const newDomainUndo = pageDomainUndo.length > 0 ? pageDomainUndo.slice(0, -1) : [];
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
-        [pageId]: previous,
+        [pageId]: restoredBubbles,
+      },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: restoredDomain,
       },
       bubbleUndoStack: {
         ...s.bubbleUndoStack,
         [pageId]: newUndo,
       },
+      domainUndoStack: {
+        ...s.domainUndoStack,
+        [pageId]: newDomainUndo,
+      },
       bubbleRedoStack: {
         ...s.bubbleRedoStack,
-        [pageId]: [...pageRedo, current],
+        [pageId]: [...pageRedo, currentBubbles],
+      },
+      domainRedoStack: {
+        ...s.domainRedoStack,
+        [pageId]: currentDomain ? [...pageDomainRedo, currentDomain] : pageDomainRedo,
       },
     }));
 
-    savePageBubbles(pageId, previous).catch((err) =>
+    savePageDomainState(restoredDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to apply undo domain state in IDB', err)
+    );
+    savePageBubbles(pageId, restoredBubbles).catch((err) =>
       console.error('[WorkbenchStore] Failed to apply undo in IDB', err)
     );
   },
@@ -979,29 +1253,64 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
   redoBubbleAction: (pageId: string) => {
     const state = get();
     const pageRedo = state.bubbleRedoStack[pageId] || [];
-    if (pageRedo.length === 0) return;
+    const pageDomainRedo = state.domainRedoStack[pageId] || [];
+    if (pageRedo.length === 0 && pageDomainRedo.length === 0) return;
 
-    const next = pageRedo[pageRedo.length - 1];
-    const newRedo = pageRedo.slice(0, -1);
-    const current = state.bubblesByPage[pageId] || [];
+    const currentBubbles = state.bubblesByPage[pageId] || [];
+    const currentDomain = state.pageDomainStates[pageId];
     const pageUndo = state.bubbleUndoStack[pageId] || [];
+    const pageDomainUndo = state.domainUndoStack[pageId] || [];
+
+    let restoredDomain: PageDomainState;
+    let restoredBubbles: BubbleItem[];
+
+    if (pageDomainRedo.length > 0) {
+      restoredDomain = pageDomainRedo[pageDomainRedo.length - 1];
+      restoredBubbles = domainStateToBubbleViews(restoredDomain);
+    } else {
+      restoredBubbles = pageRedo[pageRedo.length - 1] || [];
+      restoredDomain = convertLegacyDataToDomainState(
+        pageId,
+        restoredBubbles,
+        null,
+        state.activeChapterId || undefined
+      ).pageDomainState;
+    }
+
+    const newRedo = pageRedo.length > 0 ? pageRedo.slice(0, -1) : [];
+    const newDomainRedo = pageDomainRedo.length > 0 ? pageDomainRedo.slice(0, -1) : [];
 
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
-        [pageId]: next,
+        [pageId]: restoredBubbles,
+      },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: restoredDomain,
       },
       bubbleUndoStack: {
         ...s.bubbleUndoStack,
-        [pageId]: [...pageUndo, current],
+        [pageId]: [...pageUndo, currentBubbles],
+      },
+      domainUndoStack: {
+        ...s.domainUndoStack,
+        [pageId]: currentDomain ? [...pageDomainUndo, currentDomain] : pageDomainUndo,
       },
       bubbleRedoStack: {
         ...s.bubbleRedoStack,
         [pageId]: newRedo,
       },
+      domainRedoStack: {
+        ...s.domainRedoStack,
+        [pageId]: newDomainRedo,
+      },
     }));
 
-    savePageBubbles(pageId, next).catch((err) =>
+    savePageDomainState(restoredDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to apply redo domain state in IDB', err)
+    );
+    savePageBubbles(pageId, restoredBubbles).catch((err) =>
       console.error('[WorkbenchStore] Failed to apply redo in IDB', err)
     );
   },
@@ -1076,13 +1385,34 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
 
     const reindexed = updated.map((b, idx) => ({ ...b, index: idx + 1 }));
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain
+      ? applyBubblePatchToDomainState(currentDomain, bubbleId, {
+          translatedText: newTranslated,
+          type: newType,
+          typerPrefix: newPrefix,
+        })
+      : convertLegacyDataToDomainState(
+          pageId,
+          reindexed,
+          null,
+          state.activeChapterId || undefined
+        ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: reindexed,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to save flag acceptance domain state to IDB', err)
+    );
     savePageBubbles(pageId, reindexed).catch((err) =>
       console.error('[WorkbenchStore] Failed to save flag acceptance to IDB', err)
     );
@@ -1114,13 +1444,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       };
     });
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain || convertLegacyDataToDomainState(
+      pageId,
+      updated,
+      null,
+      state.activeChapterId || undefined
+    ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to save flag dismissal domain state to IDB', err)
+    );
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to save flag dismissal to IDB', err)
     );
@@ -1135,13 +1480,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       return { ...b, sourceText: b.originalSourceText, updatedAt: Date.now() };
     });
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain || convertLegacyDataToDomainState(
+      pageId,
+      updated,
+      null,
+      state.activeChapterId || undefined
+    ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to revert source text domain state in IDB', err)
+    );
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to revert source text in IDB', err)
     );
@@ -1180,13 +1540,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       };
     });
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain || convertLegacyDataToDomainState(
+      pageId,
+      updated,
+      null,
+      state.activeChapterId || undefined
+    ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to revert translation domain state in IDB', err)
+    );
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to revert translation in IDB', err)
     );
@@ -1209,13 +1584,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       };
     });
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain || convertLegacyDataToDomainState(
+      pageId,
+      updated,
+      null,
+      state.activeChapterId || undefined
+    ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to revert to raw translation domain state in IDB', err)
+    );
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to revert to raw translation in IDB', err)
     );
@@ -1238,13 +1628,28 @@ export const useWorkbenchStore = create<WorkbenchState>((set, get) => ({
       };
     });
 
+    const currentDomain = state.pageDomainStates[pageId];
+    const syncedDomain = currentDomain || convertLegacyDataToDomainState(
+      pageId,
+      updated,
+      null,
+      state.activeChapterId || undefined
+    ).pageDomainState;
+
     set((s) => ({
       bubblesByPage: {
         ...s.bubblesByPage,
         [pageId]: updated,
       },
+      pageDomainStates: {
+        ...s.pageDomainStates,
+        [pageId]: syncedDomain,
+      },
     }));
 
+    savePageDomainState(syncedDomain).catch((err) =>
+      console.error('[WorkbenchStore] Failed to revert to humanized translation domain state in IDB', err)
+    );
     savePageBubbles(pageId, updated).catch((err) =>
       console.error('[WorkbenchStore] Failed to revert to humanized translation in IDB', err)
     );

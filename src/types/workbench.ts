@@ -45,6 +45,10 @@ export interface BubbleItem {
   chapterId?: string;
   index: number;
   box_2d: [number, number, number, number]; // Normalized [ymin, xmin, ymax, xmax] (0-1000)
+  /** Authoritative floating-point original page pixel coordinates [ymin, xmin, ymax, xmax] */
+  pixelBox?: [number, number, number, number];
+  /** Authoritative floating-point original page polygon vertices [[x, y], ...] */
+  pixelPolygon?: Array<[number, number]>;
   regionId?: string;              // Physical visual region identity (enables multiple split records per physical bubble)
   type: BubbleType;
   typerPrefix: TyperPrefix;

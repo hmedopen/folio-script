@@ -53,6 +53,9 @@ export function assembleLocalOcrScanResult(input: AssembleLocalScanInput): Local
     geometry: {
       coordinateSpace: 'normalized_1000',
       box_2d: b.normalizedBox,
+      polygon: b.normalizedPolygon,
+      pixelBox: b.pixelBox,
+      pixelPolygon: b.pixelPolygon,
     },
     detectionConfidence: b.rawScore,
     tileOriginIds: b.sourceTileIds,

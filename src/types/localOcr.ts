@@ -127,6 +127,10 @@ export interface RawComicDetection {
   pixelBox: [number, number, number, number];
   /** Normalized 0-1000 coordinates [ymin, xmin, ymax, xmax] */
   normalizedBox: [number, number, number, number];
+  /** Optional polygon contour in original page pixel coordinates [[x, y], ...] */
+  pixelPolygon?: Array<[number, number]>;
+  /** Optional polygon contour in normalized 0-1000 coordinates [[x, y], ...] */
+  normalizedPolygon?: Array<[number, number]>;
   /** Raw model sigmoid confidence score (not calibrated probability) */
   rawScore: number;
   tileId: string;
@@ -141,6 +145,10 @@ export interface FusedComicRegion {
   classLabel: ComicDetectorClass;
   pixelBox: [number, number, number, number];
   normalizedBox: [number, number, number, number];
+  /** Optional polygon contour in original page pixel coordinates [[x, y], ...] */
+  pixelPolygon?: Array<[number, number]>;
+  /** Optional polygon contour in normalized 0-1000 coordinates [[x, y], ...] */
+  normalizedPolygon?: Array<[number, number]>;
   rawScore: number;
   sourceTileIds: string[];
   boundaryUncertain: boolean;
@@ -185,6 +193,7 @@ export interface RawOcrLineDetection {
   /** Axis-aligned box in normalized 0-1000 coordinates [ymin, xmin, ymax, xmax] */
   normalizedBox: [number, number, number, number];
   isVertical: boolean;
+  isRuby?: boolean;
 }
 
 export interface LocalOcrPartialFailure {

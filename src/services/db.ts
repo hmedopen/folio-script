@@ -31,10 +31,16 @@ import type {
   ReviewSeverity,
   ReviewDomain,
 } from '../types/review';
+import type {
+  PageDomainState,
+  ScanRunRecord,
+} from '../types/domain/index';
+import { runIdempotentV9Migration } from '../lib/domain/v9Migration';
 import { emitDiagnosticBoundary } from '../lib/diagnosticTap';
 
 const DB_NAME = 'dragonfly44_db';
-export const DB_VERSION = 8;
+export const DB_VERSION = 9;
+export const DB_V9_VERSION = 9;
 
 const STORE_PAGE_BLOBS = 'page_blobs';
 const STORE_PAGE_BUBBLES = 'page_bubbles';
@@ -45,7 +51,7 @@ const STORE_PROJECTS = 'projects';
 const STORE_CHAPTERS = 'chapters';
 const STORE_PAGES = 'pages';
 const STORE_SNAPSHOTS = 'chapter_snapshots';
-const STORE_MIGRATION_JOURNAL = 'migration_journal';
+export const STORE_MIGRATION_JOURNAL = 'migration_journal';
 const STORE_REVIEW_FINDINGS = 'review_findings';
 const STORE_REVIEW_SNAPSHOTS = 'review_snapshots';
 const STORE_REVIEW_AUDIT = 'review_audit';
@@ -59,6 +65,8 @@ const STORE_KNOWLEDGE_IDEMPOTENCY = 'knowledge_idempotency';
 const STORE_MEMORY_SETTINGS = 'memory_settings';
 export const STORE_TRAINING_REFERENCE_SETS = 'training_reference_sets';
 export const STORE_TRAINING_BLOBS = 'training_blobs';
+export const STORE_PAGE_DOMAIN_STATES = 'page_domain_states';
+export const STORE_SCAN_RUN_RECORDS = 'scan_run_records';
 
 const REQUIRED_OBJECT_STORES = [
   STORE_PAGE_BLOBS,
@@ -84,6 +92,8 @@ const REQUIRED_OBJECT_STORES = [
   STORE_MEMORY_SETTINGS,
   STORE_TRAINING_REFERENCE_SETS,
   STORE_TRAINING_BLOBS,
+  STORE_PAGE_DOMAIN_STATES,
+  STORE_SCAN_RUN_RECORDS,
 ] as const;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
@@ -200,6 +210,19 @@ function ensureSchemaStores(db: IDBDatabase): void {
   if (!db.objectStoreNames.contains(STORE_TRAINING_BLOBS)) {
     db.createObjectStore(STORE_TRAINING_BLOBS);
   }
+
+  // 5. New v9 Domain Stores (Milestone 4.2)
+  if (!db.objectStoreNames.contains(STORE_PAGE_DOMAIN_STATES)) {
+    const domainStore = db.createObjectStore(STORE_PAGE_DOMAIN_STATES, { keyPath: 'pageId' });
+    domainStore.createIndex('chapterId', 'chapterId', { unique: false });
+    domainStore.createIndex('updatedAt', 'updatedAt', { unique: false });
+  }
+  if (!db.objectStoreNames.contains(STORE_SCAN_RUN_RECORDS)) {
+    const scanRunStore = db.createObjectStore(STORE_SCAN_RUN_RECORDS, { keyPath: 'scanRunId' });
+    scanRunStore.createIndex('pageId', 'pageId', { unique: false });
+    scanRunStore.createIndex('chapterId', 'chapterId', { unique: false });
+    scanRunStore.createIndex('status', 'status', { unique: false });
+  }
 }
 
 function getMissingRequiredStores(db: IDBDatabase): string[] {
@@ -222,17 +245,24 @@ function attachConnectionLifecycle(db: IDBDatabase): IDBDatabase {
 
 function safeCloseDatabase(db: IDBDatabase): void {
   try {
-    db.onversionchange = null;
+    db.onversionchange = () => {
+      dbPromise = null;
+    };
     if (typeof db.close === 'function') {
       db.close();
     }
   } catch {
     // Ignore close errors
   }
+  dbPromise = null;
 }
 
 function openDatabaseConnection(version?: number): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    if (typeof indexedDB === 'undefined') {
+      reject(new Error('IndexedDB is not available in this environment.'));
+      return;
+    }
     const request =
       typeof version === 'number'
         ? indexedDB.open(DB_NAME, version)
@@ -277,6 +307,13 @@ export function getDatabase(): Promise<IDBDatabase> {
         safeCloseDatabase(db);
         resolvedDb = await openDatabaseConnection(upgradeVersion);
       }
+      const remainingMissing = getMissingRequiredStores(resolvedDb);
+      if (remainingMissing.length > 0) {
+        safeCloseDatabase(resolvedDb);
+        throw new Error(
+          `Database initialization failed: missing required stores: ${remainingMissing.join(', ')}`
+        );
+      }
       emitDiagnosticBoundary({
         subsystem: 'data-storage',
         component: 'IndexedDbDriver',
@@ -291,6 +328,15 @@ export function getDatabase(): Promise<IDBDatabase> {
         },
         explanation: `Opened IndexedDB "${DB_NAME}" v${resolvedDb.version} (${resolvedDb.objectStoreNames.length} stores).`,
       });
+
+      if (resolvedDb.objectStoreNames.contains(STORE_PAGE_DOMAIN_STATES)) {
+        runIdempotentV9Migration(resolvedDb).catch((migErr) => {
+          if (migErr?.name !== 'InvalidStateError') {
+            console.error('[DB] v9 migration background error', migErr);
+          }
+        });
+      }
+
       return resolvedDb;
     } catch (err: any) {
       if (err?.name === 'VersionError') {
@@ -303,6 +349,13 @@ export function getDatabase(): Promise<IDBDatabase> {
             const repairVersion = Math.max(DB_VERSION + 1, existingDb.version + 1);
             safeCloseDatabase(existingDb);
             resolvedDb = await openDatabaseConnection(repairVersion);
+          }
+          const remainingMissing = getMissingRequiredStores(resolvedDb);
+          if (remainingMissing.length > 0) {
+            safeCloseDatabase(resolvedDb);
+            throw new Error(
+              `Database initialization failed: missing required stores: ${remainingMissing.join(', ')}`
+            );
           }
           emitDiagnosticBoundary({
             subsystem: 'data-storage',
@@ -472,6 +525,8 @@ export async function getPageBubbles(pageId: string): Promise<BubbleItem[]> {
           confidence: b.confidence,
           isManuallyEdited: b.isManuallyEdited || false,
           updatedAt: b.updatedAt || Date.now(),
+          ...(Array.isArray(b.pixelBox) ? { pixelBox: b.pixelBox } : {}),
+          ...(Array.isArray(b.pixelPolygon) ? { pixelPolygon: b.pixelPolygon } : {}),
           ...(b.provenance !== undefined ? { provenance: b.provenance } : {}),
           ...(b.manualSelectionShape !== undefined ? { manualSelectionShape: b.manualSelectionShape } : {}),
           ...(Array.isArray(b.manualPolygon) ? { manualPolygon: b.manualPolygon } : {}),
@@ -494,7 +549,7 @@ export async function deletePageBubbles(pageId: string): Promise<void> {
   const db = await getDatabase();
   const key = `page-bubbles:${pageId}`;
 
-  return new Promise((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(STORE_PAGE_BUBBLES, 'readwrite');
     const store = tx.objectStore(STORE_PAGE_BUBBLES);
     const request = store.delete(key);
@@ -502,6 +557,8 @@ export async function deletePageBubbles(pageId: string): Promise<void> {
     request.onsuccess = () => resolve();
     request.onerror = () => reject(request.error);
   });
+
+  await deletePageDomainState(pageId).catch(() => {});
 }
 
 // ==========================================
@@ -1198,3 +1255,114 @@ async function saveJournalEntry(db: IDBDatabase, entry: MigrationJournalEntry): 
     req.onerror = () => reject(req.error);
   });
 }
+
+// ==========================================
+// SYSTEM #1: CANONICAL DOMAIN PERSISTENCE (IndexedDB v9)
+// ==========================================
+
+export function resetDatabaseConnection(): void {
+  if (dbPromise) {
+    dbPromise.then((db) => safeCloseDatabase(db)).catch(() => {});
+    dbPromise = null;
+  }
+}
+
+export async function getDomainDatabase(): Promise<IDBDatabase> {
+  return getDatabase();
+}
+
+export async function savePageDomainState(state: PageDomainState): Promise<void> {
+  const db = await getDomainDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PAGE_DOMAIN_STATES, 'readwrite');
+    const store = tx.objectStore(STORE_PAGE_DOMAIN_STATES);
+    const req = store.put(state);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getPageDomainState(pageId: string): Promise<PageDomainState | null> {
+  const db = await getDatabase();
+  if (!db.objectStoreNames.contains(STORE_PAGE_DOMAIN_STATES)) {
+    return null;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PAGE_DOMAIN_STATES, 'readonly');
+    const store = tx.objectStore(STORE_PAGE_DOMAIN_STATES);
+    const req = store.get(pageId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deletePageDomainState(pageId: string): Promise<void> {
+  const db = await getDatabase();
+  if (!db.objectStoreNames.contains(STORE_PAGE_DOMAIN_STATES)) {
+    return;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_PAGE_DOMAIN_STATES, 'readwrite');
+    const store = tx.objectStore(STORE_PAGE_DOMAIN_STATES);
+    const req = store.delete(pageId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveScanRunRecord(record: ScanRunRecord): Promise<void> {
+  const db = await getDomainDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCAN_RUN_RECORDS, 'readwrite');
+    const store = tx.objectStore(STORE_SCAN_RUN_RECORDS);
+    const req = store.put(record);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getScanRunRecord(scanRunId: string): Promise<ScanRunRecord | null> {
+  const db = await getDatabase();
+  if (!db.objectStoreNames.contains(STORE_SCAN_RUN_RECORDS)) {
+    return null;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCAN_RUN_RECORDS, 'readonly');
+    const store = tx.objectStore(STORE_SCAN_RUN_RECORDS);
+    const req = store.get(scanRunId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getScanRunRecordsForPage(pageId: string): Promise<ScanRunRecord[]> {
+  const db = await getDatabase();
+  if (!db.objectStoreNames.contains(STORE_SCAN_RUN_RECORDS)) {
+    return [];
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCAN_RUN_RECORDS, 'readonly');
+    const store = tx.objectStore(STORE_SCAN_RUN_RECORDS);
+    const index = store.index('pageId');
+    const req = index.getAll(pageId);
+    req.onsuccess = () => resolve(req.result || []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteScanRunRecord(scanRunId: string): Promise<void> {
+  const db = await getDatabase();
+  if (!db.objectStoreNames.contains(STORE_SCAN_RUN_RECORDS)) {
+    return;
+  }
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SCAN_RUN_RECORDS, 'readwrite');
+    const store = tx.objectStore(STORE_SCAN_RUN_RECORDS);
+    const req = store.delete(scanRunId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export { runIdempotentV9Migration };
+

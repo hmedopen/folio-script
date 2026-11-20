@@ -27,6 +27,7 @@ import {
 } from './ocrRunner.ts';
 import { assembleLocalOcrScanResult } from './resultAssembler.ts';
 import { planAdaptivePageTiles } from './tilePlanner.ts';
+import { computeExactCoverage } from './exactCoverageVerifier.ts';
 import type {
   SerializableLocalOcrResult,
   WorkerOcrRequest,
@@ -287,8 +288,11 @@ export async function executeLocalPageOcrPipeline(
       throw createWorkerAbortError();
     }
 
-    // 3. Plan adaptive 640x640 overlapping tiles
-    const tiles = planAdaptivePageTiles(pageRgba.width, pageRgba.height);
+    // 3. Plan adaptive 640x640 overlapping tiles (with gutter snapping if possible)
+    const tiles = planAdaptivePageTiles(pageRgba.width, pageRgba.height, {
+      imageBuffer: pageRgba,
+      enableGutterSnapping: true,
+    });
     const detectorThreshold = input.diagnostics?.detectorScoreThreshold ?? 0.35;
     const ocrScoreThreshold = input.diagnostics?.ocrLineScoreThreshold ?? 0.65;
 
@@ -299,6 +303,7 @@ export async function executeLocalPageOcrPipeline(
     // 4. Run comic geometry detection tile by tile (preserving partial tile results)
     const detStart = performance.now();
     let succeededTiles = 0;
+    const succeededTileIds = new Set<string>();
 
     for (const tile of tiles) {
       if (isCancelled()) {
@@ -308,6 +313,7 @@ export async function executeLocalPageOcrPipeline(
         const tileDets = await state.detectorSession.runTile(pageRgba, tile, detectorThreshold);
         rawDetections.push(...tileDets);
         succeededTiles++;
+        succeededTileIds.add(tile.tileId);
       } catch (err) {
         if ((err as { name?: string })?.name === 'AbortError' || isCancelled()) {
           throw createWorkerAbortError();
@@ -322,6 +328,22 @@ export async function executeLocalPageOcrPipeline(
       }
     }
     const detectorMs = Math.round(performance.now() - detStart);
+
+    // Exact spatial union coverage verification
+    const coverageReport = computeExactCoverage(pageRgba.width, pageRgba.height, tiles, succeededTileIds);
+    if (!coverageReport.isFullyCovered) {
+      for (const gap of coverageReport.unprocessedGaps) {
+        const gapW = gap.xmax - gap.xmin;
+        const gapH = gap.ymax - gap.ymin;
+        warnings.push(
+          `Unprocessed spatial gap: [${gap.ymin.toFixed(0)}, ${gap.xmin.toFixed(0)}, ${gap.ymax.toFixed(0)}, ${gap.xmax.toFixed(0)}] (${gapW.toFixed(0)}x${gapH.toFixed(0)}px)`
+        );
+      }
+    } else if (succeededTiles < tiles.length) {
+      warnings.push(
+        `${tiles.length - succeededTiles} tile(s) failed, but their area was completely covered by overlapping neighboring tiles.`
+      );
+    }
 
     if (isCancelled()) {
       throw createWorkerAbortError();
@@ -449,11 +471,11 @@ export async function executeLocalPageOcrPipeline(
     const totalMs = Math.round(performance.now() - totalStart);
 
     const hasCropFailures = textCandidates.length > 0 && succeededCrops < textCandidates.length;
-    const hasTileFailures = succeededTiles < tiles.length;
+    const hasCoverageGaps = !coverageReport.isFullyCovered;
     const status: 'complete' | 'partial' | 'failed' =
       textCandidates.length > 0 && succeededCrops === 0 && partialFailures.length > 0
         ? 'partial'
-        : hasTileFailures || hasCropFailures
+        : hasCoverageGaps || hasCropFailures
         ? 'partial'
         : 'complete';
 

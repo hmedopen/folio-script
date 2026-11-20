@@ -20,6 +20,7 @@ import type {
   ScanIssue,
 } from '../types/scanning';
 import { clampBox } from './coordinateTransforms';
+import { derivedNormalizedToOriginalPixels } from './localOcr/coordinatePipeline';
 
 /**
  * Deterministic mapping from GenericTextClass to default Typer Config.
@@ -202,6 +203,8 @@ export function scanResultToBubbleItems(
       pageId: scan.pageId,
       index: region.order.sequenceIndex || idx + 1,
       box_2d: safeBox,
+      pixelBox: region.geometry.pixelBox,
+      pixelPolygon: region.geometry.pixelPolygon,
       regionId: existing?.regionId || region.regionId,
       ocrPolygon: region.geometry.polygon || existing?.ocrPolygon,
       ocrAlternatives: region.ocrAlternatives || existing?.ocrAlternatives,
@@ -237,11 +240,19 @@ export function updateScanResultFromBubbleItems(
     const bubble = bubbleMap.get(region.regionId);
     if (!bubble) return region;
 
+    const pixelBox = bubble.pixelBox ?? (
+      scan.sourceDimensions
+        ? derivedNormalizedToOriginalPixels(bubble.box_2d, scan.sourceDimensions.width, scan.sourceDimensions.height)
+        : region.geometry.pixelBox
+    );
+
     return {
       ...region,
       geometry: {
         ...region.geometry,
         box_2d: bubble.box_2d,
+        pixelBox,
+        pixelPolygon: bubble.pixelPolygon ?? region.geometry.pixelPolygon,
       },
       rawOCR: bubble.originalSourceText || region.rawOCR,
       order: {
@@ -255,11 +266,19 @@ export function updateScanResultFromBubbleItems(
   // Handle any bubbles added manually by the user that weren't in original scan
   for (const bubble of bubbles) {
     if (!scan.regions.some((r) => r.regionId === bubble.id)) {
+      const pixelBox = bubble.pixelBox ?? (
+        scan.sourceDimensions
+          ? derivedNormalizedToOriginalPixels(bubble.box_2d, scan.sourceDimensions.width, scan.sourceDimensions.height)
+          : undefined
+      );
+
       const newRegion: TextRegion = {
         regionId: bubble.id,
         geometry: {
           coordinateSpace: 'normalized_1000',
           box_2d: bubble.box_2d,
+          pixelBox,
+          pixelPolygon: bubble.pixelPolygon,
         },
         rawOCR: bubble.sourceText || '',
         confidence: {

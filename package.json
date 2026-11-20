@@ -21,6 +21,7 @@
     "smoke:local-ocr": "node --import ./src/test/localOcr/tsResolveHook.mjs src/test/localOcr/smokeTest.mjs",
     "validate:local-ocr": "node --import ./src/test/localOcr/tsResolveHook.mjs src/test/localOcr/multilingualValidation.mjs",
     "test:phase3": "node --import ./src/test/localOcr/tsResolveHook.mjs --test src/test/phase3EndToEnd.test.ts",
+    "test:domain": "node --import ./src/test/localOcr/tsResolveHook.mjs --test src/test/domain/*.test.ts",
     "test:e2e": "node --import ./src/test/localOcr/tsResolveHook.mjs --test src/test/hybridScanIntegration.test.ts src/test/visualInterpretation.test.ts src/test/phase3EndToEnd.test.ts",
     "preview": "vite preview"
   },
@@ -47,6 +48,7 @@
     "cross-env": "^10.1.0",
     "electron": "^45.2.0",
     "electron-packager": "^17.1.2",
+    "fake-indexeddb": "^6.2.8",
     "oxlint": "^1.89.0",
     "tailwindcss": "^4.3.3",
     "typescript": "~7.0.2",

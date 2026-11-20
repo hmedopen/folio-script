@@ -28,6 +28,10 @@ export interface RegionGeometry {
   coordinateSpace: CoordinateSpace;
   box_2d: [number, number, number, number]; // [ymin, xmin, ymax, xmax]
   polygon?: Array<[number, number]>;
+  /** Authoritative floating-point original page pixel coordinates [ymin, xmin, ymax, xmax] */
+  pixelBox?: [number, number, number, number];
+  /** Authoritative floating-point original page polygon vertices [[x, y], ...] */
+  pixelPolygon?: Array<[number, number]>;
 }
 
 export interface PanelRegion {

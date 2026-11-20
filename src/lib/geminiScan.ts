@@ -5,8 +5,18 @@ import {
   savePageBubbles,
   savePageScan,
   getProjectLore,
+  getPageDomainState,
+  savePageDomainState,
+  saveScanRunRecord,
 } from '../services/db';
+import { buildCanonicalDomainStateFromOcr } from './domain/ocrIngestion';
+import { reconcileDomainStates } from './domain/rescanReconciliation';
 import { getChapterIntelligence, ingestPageIntelligence } from '../services/intelligence';
+import type {
+  ScanRunRecord,
+  ModelExecutionMetadata,
+  ScanLifecycleStatus,
+} from '../types/domain/index';
 import type {
   BubbleItem,
   GeminiModelKey,
@@ -48,6 +58,9 @@ export interface ScanPageDeps {
   getPageScan?: typeof getPageScan;
   savePageBubbles?: typeof savePageBubbles;
   savePageScan?: typeof savePageScan;
+  getPageDomainState?: typeof getPageDomainState;
+  savePageDomainState?: typeof savePageDomainState;
+  saveScanRunRecord?: typeof saveScanRunRecord;
   getProjectLore?: typeof getProjectLore;
   getChapterIntelligence?: typeof getChapterIntelligence;
   ingestPageIntelligence?: (...args: Parameters<typeof ingestPageIntelligence>) => Promise<unknown>;
@@ -252,6 +265,8 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
   const loadBubbles = scanDeps?.getPageBubbles ?? getPageBubbles;
   const persistBubbles = scanDeps?.savePageBubbles ?? savePageBubbles;
   const persistScan = scanDeps?.savePageScan ?? savePageScan;
+  const fetchDomainState = scanDeps?.getPageDomainState ?? getPageDomainState;
+  const persistDomainState = scanDeps?.savePageDomainState ?? savePageDomainState;
   const loadLore = scanDeps?.getProjectLore ?? getProjectLore;
   const loadChapterIntel = scanDeps?.getChapterIntelligence ?? getChapterIntelligence;
   const saveChapterIntel = scanDeps?.ingestPageIntelligence ?? ingestPageIntelligence;
@@ -274,8 +289,30 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
   const shouldRetryCrops = enableCropRetries !== undefined ? enableCropRetries : cropRetryLimit > 0;
   const typerSettings = loadTyperSettings();
 
-  // 2. SYSTEM #3: Unified Hybrid Scan & Classification Pass (Local OCR primary + Gemini context/fallback)
-  const hybridOutcome = await scanMangaPageHybridWithMeta({
+  const persistScanRun = scanDeps?.saveScanRunRecord ?? saveScanRunRecord;
+  const scanRunId = `scan-run-${pageId}-${Date.now()}`;
+  let runningScanRecord: ScanRunRecord = {
+    scanRunId,
+    pageId,
+    chapterId,
+    status: 'running',
+    startedAt: scanStart,
+    models: {
+      detector: { stage: 'detector', status: 'skipped', provider: 'none' },
+      ocr: { stage: 'ocr', status: 'skipped', provider: 'none' },
+    },
+    tiles: [],
+    detectorObservations: {},
+    ocrObservations: {},
+  };
+
+  await persistScanRun(runningScanRecord).catch((err) =>
+    console.warn('[GeminiScan] Failed to persist initial running scan record', err)
+  );
+
+  try {
+    // 2. SYSTEM #3: Unified Hybrid Scan & Classification Pass (Local OCR primary + Gemini context/fallback)
+    const hybridOutcome = await scanMangaPageHybridWithMeta({
     pageId,
     apiKey,
     selectedModel: selectedModel ? String(selectedModel) : 'gemini-3.8-flash',
@@ -431,6 +468,113 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
   await persistScan(pageId, finalScanRecord);
   await persistBubbles(pageId, finalBubbles);
 
+  try {
+    if (typeof indexedDB !== 'undefined' || scanDeps?.getPageDomainState) {
+      const existingDomainState = await fetchDomainState(pageId);
+
+      const detectorStatus = hybridOutcome.localResult?.rawDetections?.length !== undefined
+        ? 'executed'
+        : (hybridOutcome.meta.ocrSource === 'gemini_fallback' ? 'skipped' : 'failed');
+      const detectorProvider = hybridOutcome.localResult
+        ? 'wasm'
+        : (hybridOutcome.meta.ocrSource === 'gemini_fallback' ? 'remote_http' : 'none');
+
+      const models: ModelExecutionMetadata = {
+        detector: {
+          stage: 'detector',
+          status: detectorStatus,
+          provider: detectorProvider,
+          modelId: hybridOutcome.localResult?.modelsUsed?.detectorModel?.modelId || null,
+          revision: hybridOutcome.localResult?.modelsUsed?.detectorModel?.revision || null,
+        },
+        ocr: {
+          stage: 'ocr',
+          status: finalScanRecord.regions.length > 0 ? 'executed' : 'failed',
+          provider: hybridOutcome.localResult ? 'wasm' : 'remote_http',
+          modelId: hybridOutcome.localResult?.modelsUsed?.recModel?.modelId || String(selectedModel),
+          revision: hybridOutcome.localResult?.modelsUsed?.recModel?.revision || null,
+        },
+      };
+
+      const { pageDomainState: canonicalDomain, scanRunRecord: finalScanRun } = buildCanonicalDomainStateFromOcr({
+        pageId,
+        chapterId,
+        sourceDimensions: scanResult.sourceDimensions,
+        rawDetections: hybridOutcome.localResult?.rawDetections || [],
+        fusedBubbles: (hybridOutcome.localResult?.bubbleRegions as any) || [],
+        textRegions: finalScanRecord.regions,
+        allLineSegments: hybridOutcome.localResult?.lineSegments || finalScanRecord.regions.flatMap((r) => r.lineSegments || []),
+        tiles: hybridOutcome.localResult?.tiles || [],
+        models,
+        scanRunId,
+      });
+
+      for (const b of finalBubbles) {
+        const cr =
+          canonicalDomain.contentRecords[b.id] ||
+          Object.values(canonicalDomain.contentRecords).find(
+            (c) => c.contentId === b.id || c.regionTargets.some((rt) => rt.regionId === b.id || rt.regionId === b.regionId)
+          );
+        if (cr) {
+          if (b.translatedText) {
+            cr.translatedText = b.translatedText;
+            cr.translationHistory = (b.translationHistory || []).map((th, idx) => ({
+              versionId: (th as any).versionId || `v-${cr.contentId}-${idx}-${th.timestamp || Date.now()}`,
+              timestamp: th.timestamp || Date.now(),
+              text: th.text,
+              type: th.type || 'manual',
+            }));
+          }
+          if (b.speakerCharacterId) {
+            cr.speakerIds = [b.speakerCharacterId];
+          }
+          if (b.type || b.typerPrefix) {
+            cr.typerTag = {
+              id: b.type || cr.typerTag?.id || 'speech_bubbles',
+              prefix: b.typerPrefix !== undefined ? b.typerPrefix : cr.typerTag?.prefix || '"":',
+            };
+          }
+        }
+      }
+
+      canonicalDomain.extensions = {
+        legacyPayload: {
+          bubbles: finalBubbles,
+          scanResult: finalScanRecord,
+        },
+      };
+
+      let domainToPersist = canonicalDomain;
+      if (existingDomainState) {
+        const { reconciledState } = reconcileDomainStates(existingDomainState, canonicalDomain);
+        domainToPersist = reconciledState;
+      }
+
+      const terminalStatus: ScanLifecycleStatus =
+        finalScanRecord.status === 'failed'
+          ? 'failed'
+          : (!translationSuccess || finalScanRecord.status === 'partial')
+          ? 'partial'
+          : 'completed';
+
+      const scanRecordToPersist: ScanRunRecord = {
+        ...finalScanRun,
+        scanRunId,
+        pageId,
+        chapterId,
+        status: terminalStatus,
+        startedAt: runningScanRecord.startedAt,
+        completedAt: Date.now(),
+        errorMessage: translationFailureReason || finalScanRecord.issues.find((i) => i.severity === 'error')?.reason,
+      };
+
+      await persistDomainState(domainToPersist);
+      await persistScanRun(scanRecordToPersist);
+    }
+  } catch (domainErr) {
+    console.error('[GeminiScan] Failed to persist canonical domain state or scan run record', domainErr);
+  }
+
   emitDiagnosticBoundary({
     subsystem: 'data-storage',
     component: 'GeminiScanOrchestrator',
@@ -507,6 +651,17 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
     translationSuccess,
     warnings,
   };
+  } catch (err: any) {
+    const isCancelled = signal?.aborted || err?.name === 'AbortError';
+    runningScanRecord = {
+      ...runningScanRecord,
+      status: isCancelled ? 'cancelled' : 'failed',
+      completedAt: Date.now(),
+      errorMessage: err?.message || String(err),
+    };
+    await persistScanRun(runningScanRecord).catch(() => {});
+    throw err;
+  }
 }
 
 export interface TranslateSingleBubbleOptions {
@@ -805,8 +960,8 @@ export async function interpretPageVisualContext(
 ): Promise<InterpretPageVisualResult> {
   const {
     pageId,
-    chapterId,
-    projectId,
+    chapterId: _chapterId,
+    projectId: _projectId,
     apiKey,
     selectedModel = 'gemini-3.8-flash',
     includeSFX = true,

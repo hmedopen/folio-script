@@ -107,6 +107,7 @@ export interface HybridScanMetadata {
 export interface HybridScanOutcome {
   scanResult: PageScanResult;
   meta: HybridScanMetadata;
+  localResult?: LocalOcrScanResult;
 }
 
 export interface HybridGeminiCandidateInput {
@@ -1345,6 +1346,7 @@ export async function scanMangaPageHybridWithMeta(
         geminiContextFailed: true,
         cropRetryCount: 0,
       },
+      localResult,
     };
   }
 
@@ -1393,7 +1395,6 @@ export async function scanMangaPageHybridWithMeta(
       : region.regionId;
     const dec = decisionById.get(region.regionId) || decisionById.get(bareRegionId);
     const localCleanText = normalizeExtractedDialogue(region.rawOCR);
-    const hasLocalText = isMeaningfulLinguisticContent(localCleanText);
 
     // Contract: Gemini must NEVER drop local OCR regions.
     // When Gemini proposes 'drop', preserve the region and flag it for user review.
@@ -1723,6 +1724,7 @@ export async function scanMangaPageHybridWithMeta(
       geminiContextFailed: false,
       cropRetryCount,
     },
+    localResult,
   };
 }
 

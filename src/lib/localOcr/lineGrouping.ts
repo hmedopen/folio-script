@@ -109,6 +109,99 @@ export function joinLinesByScript(
   return result;
 }
 
+export interface DetectedRubyResult {
+  mainLines: RawOcrLineDetection[];
+  rubyAnnotations: Array<{
+    rubyId: string;
+    rubyLineObservationId: string;
+    parentLineObservationId: string;
+    parentCharSpan: [number, number];
+    rubyText: string;
+  }>;
+}
+
+/**
+ * Detects ruby (furigana) lines positioned alongside base CJK text lines.
+ * In vertical CJK: ruby lines are narrow columns to the right of the base column.
+ * In horizontal CJK: ruby lines are small rows immediately above the base row.
+ */
+export function detectRubyLines(
+  rawLines: RawOcrLineDetection[],
+  isVertical: boolean
+): DetectedRubyResult {
+  if (rawLines.length <= 1) {
+    return { mainLines: [...rawLines], rubyAnnotations: [] };
+  }
+
+  const rubyAnnotations: Array<{
+    rubyId: string;
+    rubyLineObservationId: string;
+    parentLineObservationId: string;
+    parentCharSpan: [number, number];
+    rubyText: string;
+  }> = [];
+
+  const rubyLineIds = new Set<string>();
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const candidate = rawLines[i];
+    const [cy1, cx1, cy2, cx2] = candidate.pixelBox;
+    const candW = Math.max(1, cx2 - cx1);
+    const candH = Math.max(1, cy2 - cy1);
+
+    for (let j = 0; j < rawLines.length; j++) {
+      if (i === j) continue;
+      const base = rawLines[j];
+      const [by1, bx1, by2, bx2] = base.pixelBox;
+      const baseW = Math.max(1, bx2 - bx1);
+      const baseH = Math.max(1, by2 - by1);
+
+      if (isVertical) {
+        const isNarrower = candW <= baseW * 0.65;
+        const xDist = cx1 - bx2;
+        const isAdjacentRight = xDist >= -baseW * 0.3 && xDist <= baseW * 0.8;
+        const yOverlap = Math.max(0, Math.min(cy2, by2) - Math.max(cy1, by1));
+        const hasOverlap = yOverlap / candH >= 0.5;
+
+        if (isNarrower && isAdjacentRight && hasOverlap) {
+          candidate.isRuby = true;
+          rubyLineIds.add(candidate.lineId);
+          rubyAnnotations.push({
+            rubyId: `ruby-${candidate.lineId}`,
+            rubyLineObservationId: candidate.lineId,
+            parentLineObservationId: base.lineId,
+            parentCharSpan: [0, base.text.length],
+            rubyText: candidate.text,
+          });
+          break;
+        }
+      } else {
+        const isShorter = candH <= baseH * 0.65;
+        const yDist = by1 - cy2;
+        const isAdjacentAbove = yDist >= -baseH * 0.3 && yDist <= baseH * 0.8;
+        const xOverlap = Math.max(0, Math.min(cx2, bx2) - Math.max(cx1, bx1));
+        const hasOverlap = xOverlap / candW >= 0.5;
+
+        if (isShorter && isAdjacentAbove && hasOverlap) {
+          candidate.isRuby = true;
+          rubyLineIds.add(candidate.lineId);
+          rubyAnnotations.push({
+            rubyId: `ruby-${candidate.lineId}`,
+            rubyLineObservationId: candidate.lineId,
+            parentLineObservationId: base.lineId,
+            parentCharSpan: [0, base.text.length],
+            rubyText: candidate.text,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  const mainLines = rawLines.filter((l) => !rubyLineIds.has(l.lineId));
+  return { mainLines, rubyAnnotations };
+}
+
 export interface GroupLinesOptions {
   language: LineJoinLanguage;
   sourceWidth: number;
@@ -147,21 +240,51 @@ export function groupLinesToTextRegions(
   }
 
   const clusters: CandidateCluster[] = [];
-  const bubbleClusterMap = new Map<string, CandidateCluster>();
+  const bubbleClusterMap = new Map<string, CandidateCluster[]>();
 
   for (const cand of candidates) {
     if (cand.associatedBubbleId) {
-      let cluster = bubbleClusterMap.get(cand.associatedBubbleId);
-      if (!cluster) {
-        cluster = {
+      let existingClusters = bubbleClusterMap.get(cand.associatedBubbleId);
+      if (!existingClusters) {
+        existingClusters = [];
+        bubbleClusterMap.set(cand.associatedBubbleId, existingClusters);
+      }
+
+      const [cy1, cx1, cy2, cx2] = cand.pixelBox;
+      const candH = Math.max(1, cy2 - cy1);
+      const candW = Math.max(1, cx2 - cx1);
+
+      // Check if cand can merge into one of the existing clusters for this balloon
+      let targetCluster: CandidateCluster | null = null;
+      for (const cl of existingClusters) {
+        for (const member of cl.candidates) {
+          const [my1, mx1, my2, mx2] = member.pixelBox;
+          const memberH = Math.max(1, my2 - my1);
+          const memberW = Math.max(1, mx2 - mx1);
+          const yGap = Math.max(0, Math.max(cy1, my1) - Math.min(cy2, my2));
+          const xGap = Math.max(0, Math.max(cx1, mx1) - Math.min(cx2, mx2));
+
+          // If close enough (< 1.8 * line height and < 2.5 * line width), belongs to same dialogue section
+          if (yGap <= Math.max(candH, memberH) * 1.8 && xGap <= Math.max(candW, memberW) * 2.5) {
+            targetCluster = cl;
+            break;
+          }
+        }
+        if (targetCluster) break;
+      }
+
+      if (targetCluster) {
+        targetCluster.candidates.push(cand);
+      } else {
+        // Independent dialogue section within the same physical balloon!
+        const newCluster: CandidateCluster = {
           clusterId: cand.candidateId,
           associatedBubbleId: cand.associatedBubbleId,
-          candidates: [],
+          candidates: [cand],
         };
-        bubbleClusterMap.set(cand.associatedBubbleId, cluster);
-        clusters.push(cluster);
+        existingClusters.push(newCluster);
+        clusters.push(newCluster);
       }
-      cluster.candidates.push(cand);
     } else {
       // Check if this unassociated candidate can merge with an existing unassociated cluster (e.g. multi-line title/narration)
       let mergedWithCluster = false;
@@ -220,7 +343,9 @@ export function groupLinesToTextRegions(
         : clusterCandidates.some((c) => (c.pixelBox[2] - c.pixelBox[0]) > (c.pixelBox[3] - c.pixelBox[1]) * 1.4) &&
           (language === 'ja' || language === 'zh');
 
-    const orderedLines = orderOcrLines(rawLines, isVertical);
+    // Detect ruby annotations and separate main lines
+    const { mainLines, rubyAnnotations } = detectRubyLines(rawLines, isVertical);
+    const orderedLines = orderOcrLines(mainLines, isVertical);
 
     const lineSegments: OcrLineSegment[] = orderedLines.map((line) => {
       const normPolygon: Array<[number, number]> = line.pixelPolygon.map(([px, py]) => [
@@ -244,6 +369,33 @@ export function groupLinesToTextRegions(
       return seg;
     });
 
+    // Also record ruby lines in allLineSegments with ruby metadata
+    for (const rAnno of rubyAnnotations) {
+      const rLine = rawLines.find((l) => l.lineId === rAnno.rubyLineObservationId);
+      if (rLine) {
+        const normPolygon: Array<[number, number]> = rLine.pixelPolygon.map(([px, py]) => [
+          Math.max(0, Math.min(1000, Math.round((px / Math.max(1, sourceWidth)) * 1000))),
+          Math.max(0, Math.min(1000, Math.round((py / Math.max(1, sourceHeight)) * 1000))),
+        ]);
+        const seg: any = {
+          lineId: rLine.lineId,
+          geometry: {
+            coordinateSpace: 'normalized_1000',
+            box_2d: rLine.normalizedBox,
+            polygon: normPolygon,
+          },
+          text: rLine.text,
+          recognitionConfidence: rLine.rawRecognitionScore,
+          detectionConfidence: rLine.rawDetectionScore,
+          isVertical: rLine.isVertical,
+          isRuby: true,
+          parentLineId: rAnno.parentLineObservationId,
+        };
+        allLineSegments.push(seg);
+        lineSegments.push(seg);
+      }
+    }
+
     const joinedText = joinLinesByScript(
       orderedLines.map((l) => l.text),
       language
@@ -251,22 +403,29 @@ export function groupLinesToTextRegions(
 
     // Derive tight text bounding box from OCR lines if available, else candidate union
     let combinedNormBox: [number, number, number, number];
+    let finalPixelBox: [number, number, number, number];
+    let finalPixelPolygon: Array<[number, number]> | undefined;
+
     if (orderedLines.length > 0) {
       const allVertices = orderedLines.flatMap((l) => l.pixelPolygon);
-      const pixelUnion = pixelPolygonToPixelBox(allVertices, sourceWidth, sourceHeight);
-      combinedNormBox = originalPixelsToNormalized1000(pixelUnion, sourceWidth, sourceHeight, 1);
-    } else {
-      let minY = 1000;
-      let minX = 1000;
-      let maxY = 0;
-      let maxX = 0;
-      for (const c of clusterCandidates) {
-        if (c.normalizedBox[0] < minY) minY = c.normalizedBox[0];
-        if (c.normalizedBox[1] < minX) minX = c.normalizedBox[1];
-        if (c.normalizedBox[2] > maxY) maxY = c.normalizedBox[2];
-        if (c.normalizedBox[3] > maxX) maxX = c.normalizedBox[3];
+      finalPixelBox = pixelPolygonToPixelBox(allVertices, sourceWidth, sourceHeight);
+      combinedNormBox = originalPixelsToNormalized1000(finalPixelBox, sourceWidth, sourceHeight, 1);
+      if (allVertices.length >= 3) {
+        finalPixelPolygon = computeConvexHull(allVertices);
       }
-      combinedNormBox = [minY, minX, maxY, maxX];
+    } else {
+      let minY = Infinity;
+      let minX = Infinity;
+      let maxY = -Infinity;
+      let maxX = -Infinity;
+      for (const c of clusterCandidates) {
+        if (c.pixelBox[0] < minY) minY = c.pixelBox[0];
+        if (c.pixelBox[1] < minX) minX = c.pixelBox[1];
+        if (c.pixelBox[2] > maxY) maxY = c.pixelBox[2];
+        if (c.pixelBox[3] > maxX) maxX = c.pixelBox[3];
+      }
+      finalPixelBox = [minY, minX, maxY, maxX];
+      combinedNormBox = originalPixelsToNormalized1000(finalPixelBox, sourceWidth, sourceHeight, 1);
     }
 
     // Derive tight aggregate polygon from line polygons via convex hull
@@ -324,6 +483,8 @@ export function groupLinesToTextRegions(
         coordinateSpace: 'normalized_1000',
         box_2d: combinedNormBox,
         polygon: aggregatePolygon,
+        pixelBox: finalPixelBox,
+        pixelPolygon: finalPixelPolygon,
       },
       rawOCR: joinedText,
       normalizedText: joinedText,
