@@ -1,6 +1,14 @@
+// Polyfill importScripts in ES module worker contexts before any Emscripten module evaluation
+if (typeof importScripts !== 'function' && typeof self !== 'undefined') {
+  try {
+    (self as any).importScripts = () => {};
+  } catch {}
+}
+
 import * as ort from 'onnxruntime-web';
 import yaml from 'js-yaml';
 import ClipperLib from 'clipper-lib';
+import cvRaw from '@techstark/opencv-js';
 import type {
   AssociatedTextCandidate,
   ModelAssetPayload,
@@ -15,7 +23,6 @@ import {
   pixelPolygonToPixelBox,
 } from './coordinateMapping.ts';
 import { disposeOrtTensors } from './ortTensorUtils.ts';
-import { buildUstarArchive } from './ustarBuilder.ts';
 
 interface OpenCvRuntime {
   Mat: any;
@@ -48,6 +55,15 @@ interface OpenCvRuntime {
 
 let cachedCvPromise: Promise<{ cv: OpenCvRuntime }> | null = null;
 
+// Polyfill importScripts in ES module worker contexts so Emscripten correctly identifies worker environment
+if (typeof importScripts !== 'function' && typeof globalThis !== 'undefined') {
+  try {
+    (globalThis as any).importScripts = () => {};
+  } catch {
+    // Ignore in environments where globalThis is frozen
+  }
+}
+
 /**
  * Safely initializes @techstark/opencv-js avoiding Emscripten's Module.then infinite unwrap.
  * NOTE: Must never return raw `cvMod` from an async function because `cvMod.then` triggers infinite Promise unwrapping.
@@ -55,15 +71,31 @@ let cachedCvPromise: Promise<{ cv: OpenCvRuntime }> | null = null;
 export async function getOpenCvRuntime(): Promise<{ cv: OpenCvRuntime }> {
   if (!cachedCvPromise) {
     cachedCvPromise = (async () => {
-      const modImport: any = await import('@techstark/opencv-js');
-      const cvMod: any = modImport?.default ?? modImport;
+      const g = globalThis as any;
+      if (typeof g.importScripts !== 'function') {
+        try {
+          g.importScripts = () => {};
+        } catch {}
+      }
+      const cvMod: any = (cvRaw as any)?.default ?? cvRaw;
       if (cvMod?.Mat) {
         return { cv: cvMod as OpenCvRuntime };
       }
       if (typeof cvMod?.then === 'function') {
-        await new Promise<void>((resolve) => {
-          cvMod.then(() => resolve());
+        const resolved = await new Promise<any>((resolve) => {
+          const origThen = cvMod.then;
+          try {
+            cvMod.then = undefined;
+          } catch {}
+          origThen.call(cvMod, (res: any) => {
+            const finalCv = res || cvMod;
+            try {
+              delete finalCv.then;
+            } catch {}
+            resolve(finalCv);
+          });
         });
+        return { cv: (resolved?.Mat ? resolved : cvMod) as OpenCvRuntime };
       } else {
         await new Promise<void>((resolve) => {
           const prev = cvMod.onRuntimeInitialized;
@@ -999,8 +1031,8 @@ export async function createOrtWebOcrAdapter(
 }
 
 /**
- * Creates an OCR pipeline adapter backed by @paddleocr/paddleocr-js 0.4.2 when served over HTTP(S),
- * falling back cleanly to the verified ORT Web adapter on file:// (packaged Electron) origins.
+ * Creates an OCR pipeline adapter backed by the direct, calibrated ONNX Runtime Web adapter.
+ * Runs reliably across all environments (packaged Electron file://, dev server http://, and Web Workers).
  */
 export async function createOcrPipelineAdapter(options: {
   routeId: OcrRouteId;
@@ -1011,72 +1043,16 @@ export async function createOcrPipelineAdapter(options: {
 }): Promise<OcrPipelineAdapter> {
   const { routeId, assets, wasmPaths, numThreads, simd } = options;
 
-  const isFileOrigin =
-    typeof globalThis.location !== 'undefined' && globalThis.location?.protocol === 'file:';
-
-  if (isFileOrigin) {
-    return createOrtWebOcrAdapter(routeId, assets);
+  if (typeof ort !== 'undefined' && ort.env?.wasm) {
+    if (wasmPaths) {
+      ort.env.wasm.wasmPaths = wasmPaths;
+    }
+    ort.env.wasm.simd = simd;
+    ort.env.wasm.numThreads = numThreads;
+    ort.env.wasm.proxy = false;
   }
 
-  const { cv } = await getOpenCvRuntime();
-  const { PaddleOCR } = await import('@paddleocr/paddleocr-js');
-  const resolved = resolveModelTarInputs(routeId, assets);
-
-  const detTar = buildUstarArchive([
-    { name: 'inference.onnx', data: resolved.detOnnx },
-    { name: 'inference.yml', data: new TextEncoder().encode(resolved.detYml) },
-  ]);
-  const recTar = buildUstarArchive([
-    { name: 'inference.onnx', data: resolved.recOnnx },
-    { name: 'inference.yml', data: new TextEncoder().encode(resolved.recYml) },
-  ]);
-
-  const localAssetFetch: typeof fetch = async (input) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.endsWith('det.tar')) {
-      return new Response(new Uint8Array(detTar), { status: 200 });
-    }
-    if (url.endsWith('rec.tar')) {
-      return new Response(new Uint8Array(recTar), { status: 200 });
-    }
-    return fetch(input);
-  };
-
-  const instance = await PaddleOCR.create({
-    textDetectionModelName: resolved.detModelName,
-    textDetectionModelAsset: { url: 'https://local-folio-assets.invalid/det.tar' },
-    textRecognitionModelName: resolved.recModelName,
-    textRecognitionModelAsset: { url: 'https://local-folio-assets.invalid/rec.tar' },
-    ortOptions: {
-      backend: 'wasm',
-      wasmPaths,
-      simd,
-      numThreads,
-      disableWasmProxy: true,
-    },
-    fetch: localAssetFetch,
-  });
-
-  return {
-    runtimeUsed: 'paddleocr_js',
-    async predictCrop(cropRgba: RgbaImageBuffer): Promise<OcrLineRawOutput[]> {
-      const mat = cv.matFromArray(cropRgba.height, cropRgba.width, cv.CV_8UC4, cropRgba.data);
-      try {
-        const results = await instance.predict(mat);
-        const items = results?.[0]?.items || [];
-        return items.map((item: any) => ({
-          poly: (item.poly || []).map((pt: [number, number]) => [Number(pt[0]), Number(pt[1])]),
-          text: typeof item.text === 'string' ? item.text : '',
-          score: typeof item.score === 'number' && Number.isFinite(item.score) ? item.score : 0,
-        }));
-      } finally {
-        mat.delete();
-      }
-    },
-    async dispose() {
-      await instance.dispose();
-    },
-  };
+  return createOrtWebOcrAdapter(routeId, assets);
 }
 
 /**

@@ -1270,7 +1270,10 @@ export async function scanMangaPageHybridWithMeta(
   let geminiContext: ValidatedHybridContextOutput | null = null;
   let geminiFailureReason: string | null = null;
 
-  if (!apiKey || apiKey.trim().length === 0) {
+  if (options.allowGeminiFallback === false) {
+    geminiFailureReason =
+      'Gemini fallback is disabled; local OCR regions preserved without contextual classification or translation.';
+  } else if (!apiKey || apiKey.trim().length === 0) {
     geminiFailureReason =
       'Gemini API key is not configured; local OCR regions preserved without contextual classification or translation.';
   } else {

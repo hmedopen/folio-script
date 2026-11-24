@@ -1,3 +1,10 @@
+// Polyfill importScripts in ES module worker contexts before any dynamic imports
+if (typeof importScripts !== 'function' && typeof self !== 'undefined') {
+  try {
+    (self as any).importScripts = () => {};
+  } catch {}
+}
+
 import * as ort from 'onnxruntime-web';
 import type {
   ModelAssetPayload,
@@ -16,7 +23,7 @@ import {
   extractRgbaCrop,
   type OcrPipelineAdapter,
 } from '../../../lib/localOcr/ocrRunner.ts';
-import { detectWasmSimdSupport, resolveWasmThreadCount } from '../../../lib/localOcr/ocrWorker.ts';
+import { detectWasmSimdSupport, resolveWasmThreadCount } from '../../../lib/localOcr/wasmUtils.ts';
 import {
   maskCropOutsideEllipse,
   maskCropOutsidePolygon,

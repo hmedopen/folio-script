@@ -33,6 +33,7 @@ export interface ManualOcrServiceDeps {
   getPageBubbles?: (pageId: string) => Promise<BubbleItem[]>;
   wasmPaths?: string;
   cancellationTimeoutMs?: number;
+  executionTimeoutMs?: number;
 }
 
 function defaultCreateManualWorker(): ManualWorkerLike {
@@ -255,8 +256,14 @@ export class ManualOcrService {
         let settled = false;
         let abortRequested = false;
         let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+        const executionTimeoutMs = this.deps.executionTimeoutMs ?? 30000;
+        let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
         const cleanup = () => {
+          if (watchdogTimer !== null) {
+            clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
           if (cancelTimer !== null) {
             clearTimeout(cancelTimer);
             cancelTimer = null;
@@ -265,6 +272,24 @@ export class ManualOcrService {
           worker.removeEventListener('error', onError);
           options.signal?.removeEventListener('abort', onAbort);
         };
+
+        const terminateOnWatchdog = () => {
+          if (settled) return;
+          settled = true;
+          cleanup();
+          try {
+            worker.terminate();
+          } catch {
+            // Ignore
+          }
+          if (this.worker === worker) {
+            this.worker = null;
+            this.cachedOcrKey = null;
+          }
+          reject(new Error(`Manual OCR worker timed out (exceeded ${executionTimeoutMs}ms limit).`));
+        };
+
+        watchdogTimer = setTimeout(terminateOnWatchdog, executionTimeoutMs);
 
         const terminateOnTimeout = () => {
           if (settled) return;
@@ -303,6 +328,10 @@ export class ManualOcrService {
 
           if (msg.type === 'region_progress') {
             options.onProgress?.(msg.regionId, msg.completed, msg.total);
+            if (watchdogTimer !== null) {
+              clearTimeout(watchdogTimer);
+              watchdogTimer = setTimeout(terminateOnWatchdog, executionTimeoutMs);
+            }
             return;
           }
 

@@ -304,6 +304,7 @@ export class ScanQueueManager {
           this.pageStatuses[currentItem.pageId] = 'error';
           this.detailedPageStatuses[currentItem.pageId] = isLocalOcrError ? 'ocr_failed' : 'ocr_complete_interpretation_failed';
           this.pageErrors[currentItem.pageId] = err?.message || 'Scan failed';
+          this.completedCount++;
           emitDiagnosticBoundary({
             subsystem: 'scanning-ocr',
             component: 'ScanQueueManager',
@@ -441,6 +442,7 @@ export class ScanQueueManager {
         this.pageStatuses[item.pageId] = 'error';
         this.detailedPageStatuses[item.pageId] = 'ocr_failed';
         this.pageErrors[item.pageId] = result.scanResult?.issues?.[0]?.reason || 'Scan failed to extract text.';
+        this.completedCount++;
         this.notify(item.pageIndex);
         return;
       }

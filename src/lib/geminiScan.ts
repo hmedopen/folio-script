@@ -360,7 +360,9 @@ export async function scanPageWithGemini(options: ScanPageOptions): Promise<Scan
     return false;
   });
 
-  if (hasPendingTranslatable) {
+  if (options.allowGeminiFallback === false) {
+    translationSuccess = true;
+  } else if (hasPendingTranslatable) {
     if (!apiKey || apiKey.trim().length === 0) {
       translationSuccess = false;
       translationFailureReason =
